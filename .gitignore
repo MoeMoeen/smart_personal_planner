@@ -1,0 +1,20 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.sqlite3
+
+# Virtual environment
+.env/
+venv/
+ENV/
+env/
+
+# Environment variables
+.env
+
+# VSCode settings
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
