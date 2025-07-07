@@ -1,4 +1,6 @@
 from fastapi import FastAPI
+from app.routers import goals, cycles
+
 
 # Step 1: Create the FastAPI app
 app = FastAPI()
@@ -7,3 +9,9 @@ app = FastAPI()
 @app.get("/")
 def read_root():
     return {"message": "Welcome to Smart Personal Planner!"}
+
+# Step 3: Include the goals router
+app.include_router(goals.router)
+
+# Step 4: Include the cycles router
+app.include_router(cycles.router)

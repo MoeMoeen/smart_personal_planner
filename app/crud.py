@@ -106,3 +106,47 @@ def delete_task(db: Session, task_id: int) -> Optional[models.Task]:
 def get_habit_cycles_by_habit(db: Session, habit_id: int) -> List[models.HabitCycle]:
     return db.query(models.HabitCycle).filter(models.HabitCycle.habit_id == habit_id).all()
 
+
+# === GOAL OCCURRENCE CRUD OPERATIONS ===
+
+# Create Goal Occurrence
+def create_goal_occurrence(db: Session, occurrence_data: schemas.GoalOccurrenceCreate) -> models.GoalOccurrence:
+    db_occurrence = models.GoalOccurrence(**occurrence_data.model_dump())
+    db.add(db_occurrence)
+    db.commit()
+    db.refresh(db_occurrence)
+    return db_occurrence
+
+# Get all occurrences for a given cycle
+def get_occurrences_for_cycle(
+    db: Session, cycle_id: int
+) -> List[models.GoalOccurrence]:
+    return db.query(models.GoalOccurrence).filter(
+        models.GoalOccurrence.cycle_id == cycle_id
+    ).order_by(models.GoalOccurrence.sequence_number).all()
+
+# Update Goal Occurrence 
+def update_goal_occurrence(
+    db: Session, occurrence_id: int, updates: schemas.GoalOccurrenceUpdate
+) -> Optional[models.GoalOccurrence]:
+    db_occurrence = db.query(models.GoalOccurrence).filter(
+        models.GoalOccurrence.id == occurrence_id
+    ).first()
+    if not db_occurrence:
+        return None
+    for key, value in updates.model_dump(exclude_unset=True).items():
+        setattr(db_occurrence, key, value)
+    db.commit()
+    db.refresh(db_occurrence)
+    return db_occurrence
+
+# Delete Goal Occurrence
+def delete_goal_occurrence(db: Session, occurrence_id: int) -> Optional[models.GoalOccurrence]:
+    db_occurrence = db.query(models.GoalOccurrence).filter(
+        models.GoalOccurrence.id == occurrence_id
+    ).first()
+    if not db_occurrence:
+        return None
+    db.delete(db_occurrence)
+    db.commit()
+    return db_occurrence
