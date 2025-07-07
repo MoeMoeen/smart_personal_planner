@@ -1,0 +1,108 @@
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from datetime import date
+from enum import Enum
+
+# === ENUMS ===
+# Goal type enum (same as models)
+class GoalType(str, Enum):
+    project = "project"
+    habit = "habit"
+
+# === GOAL SHARED BASE ===
+# Base schema for all goals - Shared base class for both projects and habits
+# This will be used for creating and updating goals
+class GoalBase(BaseModel):
+    start_date: date = Field(..., description="Start date of the goal")
+    end_date: Optional[date] = Field(None, description="End date of the goal, optional for habits")
+    title: str = Field(..., description="Title of the goal")
+    description: Optional[str] = Field(None, description="Description of the goal")
+    progress: int = Field(0, ge=0, le=100, description="Progress percentage (0-100)")
+    goal_type: GoalType = Field(..., description="Type of the goal (project or habit)")
+
+# === CREATE GOAL VARIANTS ===
+# Schema for creating a new project goal - Extended class for Project-specific fields
+class ProjectGoalCreate(GoalBase):
+    goal_type: GoalType = GoalType.project
+    end_date: date = Field(..., description="End date of the project goal") # Projects require explicit end dates
+
+# Schema for creating a new habit goal - Extended class for Habit-specific fields
+class HabitGoalCreate(GoalBase):
+    goal_type: GoalType = GoalType.habit
+    end_date: Optional[date] = Field(None, description="End date of the habit goal, optional for open-ended habits")
+    goal_recurrence_count: Optional[int] = Field(None, ge=1, description="Number of cycles to complete the habit goal (e.g., 6 months)")
+    goal_frequency_per_cycle: int = Field(..., ge=1, description="How many times to complete the habit per cycle (e.g., 2 times per month)")
+    recurrence_cycle: str = Field(..., description="Recurrence cycle type (e.g., daily, weekly, monthly)")
+    default_estimated_time_per_cycle: Optional[int] = Field(1, ge=1, description="Default estimated time per cycle in hours (default is 1 hour)")
+
+# === UPDATE GOAL VARIANTS ===
+# Schema for updating an existing habit goal - Used for PUT/PATCH requests
+class HabitGoalUpdate(BaseModel):
+    title: Optional[str] = Field(None, description="Update the title of the habit")
+    description: Optional[str] = Field(None, description="Update the description of the habit")
+    start_date: Optional[date] = Field(None, description="Update the start date")
+    end_date: Optional[date] = Field(None, description="Update the end date (optional)")
+    progress: Optional[int] = Field(None, ge=0, le=100, description="Update overall progress percentage")
+    goal_recurrence_count: Optional[int] = Field(None, description="Update recurrence count")
+    goal_frequency_per_cycle: Optional[int] = Field(None, gt=0, description="Update frequency per cycle")
+    recurrence_cycle: Optional[str] = Field(None, description="Update cycle unit (daily, weekly, etc.)")
+    default_estimated_time_per_cycle: Optional[int] = Field(None, description="Update default estimated time per cycle in hours")
+
+# Schema for updating an existing project goal - Used for PUT/PATCH requests
+class ProjectGoalUpdate(BaseModel):
+    title: Optional[str] = Field(None, description="Update the title of the project")
+    description: Optional[str] = Field(None, description="Update the description of the project")
+    start_date: Optional[date] = Field(None, description="Update the start date")
+    end_date: Optional[date] = Field(None, description="Update the end date")
+    progress: Optional[int] = Field(None, ge=0, le=100, description="Update progress score (0–100)")
+
+# === GOAL READ MODEL ===
+# Response model
+# Schema for reading a goal - Used for GET requests to retrieve goal details
+class GoalRead(GoalBase):
+    id: int = Field(..., description="Unique identifier of the goal")
+    # tasks: List[int] = Field([], description="List of task IDs associated with this goal")
+
+    class Config:
+        orm_mode = True  # Enable ORM mode to read from SQLAlchemy models
+
+# === TASK MODELS ===
+# Schema for task creation - Used for creating tasks associated with goals
+class TaskCreate(BaseModel):
+    title: str = Field(..., description="Title of the task")
+    due_date: Optional[date] = Field(None, description="Due date of the task")
+    estimated_time: Optional[int] = Field(None, description="Estimated time in hours to complete this task")
+    completed: Optional[bool] = Field(False, description="Whether the task is completed")
+    goal_id: int = Field(..., description="ID of the goal this task belongs to")
+    cycle_id: Optional[int] = Field(None, description="ID of the cycle this task belongs to, if applicable")
+
+# Schema for updating an existing task - Used for PUT/PATCH requests
+class TaskUpdate(BaseModel):
+    title: Optional[str] = Field(None, description="Title of the task")
+    due_date: Optional[date] = Field(None, description="Due date of the task")
+    completed: Optional[bool] = Field(None, description="Whether the task is completed")
+    estimated_time: Optional[int] = Field(None, ge=0, description="Estimated time to complete the task in minutes")
+    goal_id: Optional[int] = Field(None, description="Update the parent goal ID")
+    cycle_id: Optional[int] = Field(None, description="Update the associated cycle ID (for habits)")
+
+
+# Schema for reading a task - Used for GET requests to retrieve task details
+class TaskRead(TaskCreate):
+    id: int = Field(..., description="Unique identifier of the task")
+
+    class Config:
+        orm_mode = True  # Enable ORM mode to read from SQLAlchemy models
+
+# === HABIT CYCLE READ-ONLY ===
+# Schema for habit cycle read-only model - Used for creating and reading habit cycles
+class HabitCycleRead(BaseModel):
+    id: int = Field(..., description="Unique identifier of the habit cycle")
+    start_date: date = Field(..., description="Start date of the habit cycle")
+    end_date: Optional[date] = Field(None, description="End date of the habit cycle, optional for open-ended cycles")
+    habit_id: int = Field(..., description="ID of the habit this cycle belongs to")
+    cycle_label: str = Field(..., description="Label for the cycle (e.g., 'July 2025')")
+    progress: int = Field(0, ge=0, le=100, description="Progress score for the cycle (0-100)")
+
+
+    class Config:
+        orm_mode = True  # Enable ORM mode to read from SQLAlchemy models

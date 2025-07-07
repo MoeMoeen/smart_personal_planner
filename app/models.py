@@ -75,6 +75,9 @@ class HabitGoal(Goal):
     # Relationship to individual cycles (e.g. July 2025, Aug 2025, etc.). All habits have cycles.
     cycles = relationship("HabitCycle", back_populates="habit", cascade="all, delete-orphan")
 
+    default_estimated_time_per_cycle = Column(Integer, nullable=True, default=1)  # Default hours per cycle
+
+
 # Step 6: Define HabitCycle model (e.g., one row per week or month)
 class HabitCycle(Base):
     __tablename__ = "habit_cycles"
