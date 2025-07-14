@@ -27,6 +27,7 @@ packaging==24.2
 psycopg2-binary==2.9.10
 pydantic==2.11.7
 pydantic_core==2.33.2
+python-decouple==3.8
 python-dotenv==1.1.1
 PyYAML==6.0.2
 regex==2024.11.6

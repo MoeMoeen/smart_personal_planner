@@ -141,3 +141,5 @@ class HabitCycleCreate(BaseModel):
     habit_id: int = Field(..., description="ID of the habit this cycle belongs to")
     cycle_label: str = Field(..., description="Label for the cycle (e.g., 'July 2025')")
     progress: int = Field(0, ge=0, le=100, description="Progress score for the cycle (0-100)")
+
+
