@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import goals, cycles, planning
+from app.routers import goals, cycles, occurrences, planning
 
 
 # Step 1: Create the FastAPI app
@@ -16,5 +16,8 @@ app.include_router(goals.router)
 # Step 4: Include the cycles router
 app.include_router(cycles.router)
 
-# Step 5: Include the planning router
+# Step 5: Include the occurrences router
+app.include_router(occurrences.router)
+
+# Step 6: Include the planning router
 app.include_router(planning.router)

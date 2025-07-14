@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional, Sequence
 
-from app import models, schemas, crud
+from app import models, schemas
+from app.crud import crud
 from app.db import get_db
 
 # Step 1: Create the API router for goals

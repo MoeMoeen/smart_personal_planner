@@ -1,3 +1,8 @@
+# === goal_parser_chain.py ===
+# This file contains the LangChain chain that parses natural language goal descriptions
+# into structured plans following our AI-driven schema (goal → cycles → occurrences → tasks)
+
+
 from langchain_openai import ChatOpenAI                     # ✅ Interface to OpenAI chat models
 from langchain.prompts import ChatPromptTemplate            # ✅ Helps define reusable prompt structure
 from langchain.output_parsers import PydanticOutputParser   # ✅ Enforces Pydantic schema on LLM output
@@ -16,15 +21,37 @@ from decouple import config
 parser = PydanticOutputParser(pydantic_object=GeneratedPlan)
 
 # ✅ Define the prompt template with placeholders for dynamic content, i.e, for the LLM (system + user)
-prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", "You are a helpful AI assistant that generates structured plans based on user input."),
-        ("user", "Here is a user's goal description:\n\n{goal_description}\n\n"
-        "Respond with a structured plan that matches this format:\n{format_instructions}"),
-    ]
+# ✅ Create the system prompt that guides the LLM
+prompt_template = ChatPromptTemplate.from_template(
+    """
+    You are a smart personal planner.
+
+    Given a user's natural language description of a goal, generate a structured goal planning breakdown.
+
+    Your response MUST:
+    - Follow the JSON structure defined by this format:
+    {format_instructions}
+
+    The plan must include:
+    - Top-level goal details (title, type, start date, recurrence info, etc.)
+    - Habit cycles if the goal is recurring (e.g. monthly)
+    - Inside each cycle, define N goal occurrences based on goal_frequency_per_cycle
+    - Inside each occurrence, generate 2–4 detailed tasks:
+        - Include the main action (e.g. "Play football")
+        - Include at least 1 preparation or support task (e.g. commute, packing)
+        - Use realistic estimated_time and due_date fields
+
+    Do NOT include motivational or extra explanation text. Only return structured data.
+
+    User goal: {goal_description}
+    """
 )
 
-# ✅ Initialize the OpenAI model — use GPT-4 or GPT-3.5
+# ✅ Bind the format instructions
+prompt = prompt_template.partial(format_instructions=parser.get_format_instructions())
+
+
+# ✅ Connect the LLM (OpenAI model — use GPT-4 or GPT-3.5)
 
 openai_api_key = config("OPENAI_API_KEY")  # Raises error if missing
 

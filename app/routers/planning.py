@@ -20,6 +20,10 @@ class GoalDescriptionRequest(BaseModel):
 # ✅ Output schema: the full structured plan
 class AIPlanResponse(BaseModel):
     plan: GeneratedPlan = Field(..., description="AI-generated structured plan")
+    source: str = Field(default="AI", description="Source of the generated plan")   
+    ai_version: str = Field(default="1.0", description="Version of the AI model used")
+    
+
 
 # ✅ Main route: POST /planning/ai-generate-plan
 @router.post("/ai-generate-plan", response_model=AIPlanResponse)
@@ -30,8 +34,13 @@ def generate_plan_from_ai(request: GoalDescriptionRequest):
     try:
         # Run the LangChain pipeline with the user's goal description
         generated_plan: GeneratedPlan = goal_parser_chain.invoke(
-            {"goal_description": request.goal_description}
+            {
+                "goal_description": request.goal_description,
+                "format_instructions": parser.get_format_instructions()
+            }    
         )
-        return AIPlanResponse(plan=generated_plan)
+        response = AIPlanResponse(plan=generated_plan, source="AI", ai_version="1.0")
+        # Return the structured plan as JSON
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
