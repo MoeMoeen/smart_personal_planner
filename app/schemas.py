@@ -64,7 +64,7 @@ class GoalRead(GoalBase):
     # tasks: List[int] = Field([], description="List of task IDs associated with this goal")
 
     class Config:
-        orm_mode = True  # Enable ORM mode to read from SQLAlchemy models
+        from_attributes = True  # Enable ORM mode to read from SQLAlchemy models
 
 # === TASK MODELS ===
 # Schema for task creation - Used for creating tasks associated with goals
@@ -93,7 +93,7 @@ class TaskRead(TaskCreate):
     id: int = Field(..., description="Unique identifier of the task")
 
     class Config:
-        orm_mode = True  # Enable ORM mode to read from SQLAlchemy models
+        from_attributes = True  # Enable ORM mode to read from SQLAlchemy models
 
 # === GOAL OCCURRENCE READ-ONLY ===
 
@@ -105,7 +105,7 @@ class GoalOccurrenceRead(BaseModel):
     completed: bool = Field(False, description="Whether this goal occurrence has been completed")
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # === GOAL OCCURRENCE CREATE/UPDATE === 
 class GoalOccurrenceCreate(BaseModel):
@@ -132,7 +132,7 @@ class HabitCycleRead(BaseModel):
     occurrences: List[GoalOccurrenceRead] = Field([], description="List of scheduled goal occurrences in this cycle")
 
     class Config:
-        orm_mode = True  # Enable ORM mode to read from SQLAlchemy models
+        from_attributes = True  # Enable ORM mode to read from SQLAlchemy models
 
 # === HABIT CYCLE CREATE/UPDATE ===
 class HabitCycleCreate(BaseModel):

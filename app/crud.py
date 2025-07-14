@@ -6,6 +6,13 @@ from app import models, schemas
 
 # Create Habit Goal
 def create_habit_goal(db: Session, goal_data: schemas.HabitGoalCreate) -> models.HabitGoal:
+    # Validate business logic constraints
+    if goal_data.end_date and goal_data.start_date >= goal_data.end_date:
+        raise ValueError("Start date must be before end date for habit goals")
+    
+    if goal_data.goal_frequency_per_cycle <= 0:
+        raise ValueError("Goal frequency per cycle must be positive")
+    
     db_goal = models.HabitGoal(**goal_data.model_dump())
     db.add(db_goal)
     db.commit()
@@ -14,6 +21,10 @@ def create_habit_goal(db: Session, goal_data: schemas.HabitGoalCreate) -> models
 
 # Create Project Goal
 def create_project_goal(db: Session, goal_data: schemas.ProjectGoalCreate) -> models.ProjectGoal:
+    # Validate business logic constraints
+    if goal_data.start_date >= goal_data.end_date:
+        raise ValueError("Start date must be before end date for project goals")
+    
     db_goal = models.ProjectGoal(**goal_data.model_dump())
     db.add(db_goal)
     db.commit()

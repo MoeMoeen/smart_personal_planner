@@ -26,21 +26,35 @@ prompt = ChatPromptTemplate.from_messages(
 
 # ✅ Initialize the OpenAI model — use GPT-4 or GPT-3.5
 
-openai_api_key = config("OPENAI_API_KEY")  # Raises error if missing
+try:
+    openai_api_key = config("OPENAI_API_KEY")  # Raises error if missing
+except Exception:
+    openai_api_key = None
 
 llm_kwargs = {
     "model": os.getenv("OPENAI_MODEL", "gpt-4"),
     "temperature": 0.2,
 }
-if isinstance(openai_api_key, str) and openai_api_key:
-    llm_kwargs["api_key"] = SecretStr(openai_api_key)
 
-llm = ChatOpenAI(**llm_kwargs)
+if openai_api_key:
+    llm_kwargs["api_key"] = SecretStr(openai_api_key)
+else:
+    # Fallback for testing - use a mock or raise a more informative error
+    print("⚠️  OpenAI API key not configured. AI features will not work.")
+
+try:
+    llm = ChatOpenAI(**llm_kwargs)
+except Exception as e:
+    print(f"❌ Failed to initialize OpenAI client: {e}")
+    llm = None
 
 # ✅ Create the goal parser chain that combines the prompt, LLM, and output parser
 # ✅ Combine everything into a full chain: prompt → LLM → parser
 
-goal_parser_chain = (
-    prompt | llm | parser
-)
+if llm is not None:
+    goal_parser_chain = (
+        prompt | llm | parser
+    )
+else:
+    goal_parser_chain = None
 

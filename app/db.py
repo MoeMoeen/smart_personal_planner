@@ -12,7 +12,9 @@ load_dotenv()
 # Get the database URL from .env
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL is None:
-	raise ValueError("DATABASE_URL environment variable is not set.")
+    # Provide a default SQLite database for development
+    DATABASE_URL = "sqlite:///./smart_planner.db"
+    print("⚠️  DATABASE_URL not set, using default SQLite database: ./smart_planner.db")
 
 # Create SQLAlchemy engine
 engine = create_engine(DATABASE_URL)
