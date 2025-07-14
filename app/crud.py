@@ -1,6 +1,11 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app import models, schemas
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # === GOAL CRUD OPERATIONS ===
 
@@ -13,11 +18,17 @@ def create_habit_goal(db: Session, goal_data: schemas.HabitGoalCreate) -> models
     if goal_data.goal_frequency_per_cycle <= 0:
         raise ValueError("Goal frequency per cycle must be positive")
     
-    db_goal = models.HabitGoal(**goal_data.model_dump())
-    db.add(db_goal)
-    db.commit()
-    db.refresh(db_goal)
-    return db_goal
+    try:
+        db_goal = models.HabitGoal(**goal_data.model_dump())
+        db.add(db_goal)
+        db.commit()
+        db.refresh(db_goal)
+        logger.info(f"Created habit goal: {db_goal.title} (ID: {db_goal.id})")
+        return db_goal
+    except Exception as e:
+        logger.error(f"Error creating habit goal: {str(e)}")
+        db.rollback()
+        raise
 
 # Create Project Goal
 def create_project_goal(db: Session, goal_data: schemas.ProjectGoalCreate) -> models.ProjectGoal:
@@ -25,11 +36,17 @@ def create_project_goal(db: Session, goal_data: schemas.ProjectGoalCreate) -> mo
     if goal_data.start_date >= goal_data.end_date:
         raise ValueError("Start date must be before end date for project goals")
     
-    db_goal = models.ProjectGoal(**goal_data.model_dump())
-    db.add(db_goal)
-    db.commit()
-    db.refresh(db_goal)
-    return db_goal
+    try:
+        db_goal = models.ProjectGoal(**goal_data.model_dump())
+        db.add(db_goal)
+        db.commit()
+        db.refresh(db_goal)
+        logger.info(f"Created project goal: {db_goal.title} (ID: {db_goal.id})")
+        return db_goal
+    except Exception as e:
+        logger.error(f"Error creating project goal: {str(e)}")
+        db.rollback()
+        raise
 
 # Get Goal by ID
 def get_goal_by_id(db: Session, goal_id: int) -> Optional[models.Goal]:
@@ -77,11 +94,17 @@ def delete_goal(db: Session, goal_id: int) -> Optional[models.Goal]:
 
 # Create Task
 def create_task(db: Session, task_data: schemas.TaskCreate) -> models.Task:
-    db_task = models.Task(**task_data.model_dump())
-    db.add(db_task)
-    db.commit()
-    db.refresh(db_task)
-    return db_task
+    try:
+        db_task = models.Task(**task_data.model_dump())
+        db.add(db_task)
+        db.commit()
+        db.refresh(db_task)
+        logger.info(f"Created task: {db_task.title} (ID: {db_task.id})")
+        return db_task
+    except Exception as e:
+        logger.error(f"Error creating task: {str(e)}")
+        db.rollback()
+        raise
 
 # Get Task by ID
 def get_task_by_id(db: Session, task_id: int) -> Optional[models.Task]:

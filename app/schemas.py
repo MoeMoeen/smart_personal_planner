@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional, List
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
+import re
 
 # === ENUMS ===
 # Goal type enum (same as models)
@@ -15,10 +16,29 @@ class GoalType(str, Enum):
 class GoalBase(BaseModel):
     start_date: date = Field(..., description="Start date of the goal")
     end_date: Optional[date] = Field(None, description="End date of the goal, optional for habits")
-    title: str = Field(..., description="Title of the goal")
-    description: Optional[str] = Field(None, description="Description of the goal")
+    title: str = Field(..., description="Title of the goal", min_length=1, max_length=200)
+    description: Optional[str] = Field(None, description="Description of the goal", max_length=1000)
     progress: int = Field(0, ge=0, le=100, description="Progress percentage (0-100)")
     goal_type: GoalType = Field(..., description="Type of the goal (project or habit)")
+    
+    @validator('title')
+    def validate_title(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Title cannot be empty')
+        # Remove extra whitespace
+        return v.strip()
+    
+    @validator('description')
+    def validate_description(cls, v):
+        if v:
+            return v.strip()
+        return v
+    
+    @validator('end_date')
+    def validate_end_date(cls, v, values):
+        if 'start_date' in values and v and v <= values['start_date']:
+            raise ValueError('End date must be after start date')
+        return v
 
 # === CREATE GOAL VARIANTS ===
 # Schema for creating a new project goal - Extended class for Project-specific fields
@@ -34,6 +54,19 @@ class HabitGoalCreate(GoalBase):
     goal_frequency_per_cycle: int = Field(..., ge=1, description="How many times to complete the habit per cycle (e.g., 2 times per month)")
     recurrence_cycle: str = Field(..., description="Recurrence cycle type (e.g., daily, weekly, monthly)")
     default_estimated_time_per_cycle: Optional[int] = Field(1, ge=1, description="Default estimated time per cycle in hours (default is 1 hour)")
+    
+    @validator('recurrence_cycle')
+    def validate_recurrence_cycle(cls, v):
+        valid_cycles = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
+        if v.lower() not in valid_cycles:
+            raise ValueError(f'Recurrence cycle must be one of: {", ".join(valid_cycles)}')
+        return v.lower()
+    
+    @validator('goal_frequency_per_cycle')
+    def validate_frequency(cls, v):
+        if v <= 0:
+            raise ValueError('Goal frequency per cycle must be positive')
+        return v
 
 # === UPDATE GOAL VARIANTS ===
 # Schema for updating an existing habit goal - Used for PUT/PATCH requests
@@ -69,23 +102,40 @@ class GoalRead(GoalBase):
 # === TASK MODELS ===
 # Schema for task creation - Used for creating tasks associated with goals
 class TaskCreate(BaseModel):
-    title: str = Field(..., description="Title of the task")
+    title: str = Field(..., description="Title of the task", min_length=1, max_length=200)
     due_date: Optional[date] = Field(None, description="Due date of the task")
-    estimated_time: Optional[int] = Field(None, description="Estimated time in hours to complete this task")
+    estimated_time: Optional[int] = Field(None, ge=1, description="Estimated time in hours to complete this task")
     completed: Optional[bool] = Field(False, description="Whether the task is completed")
-    goal_id: int = Field(..., description="ID of the goal this task belongs to")
+    goal_id: int = Field(..., description="ID of the goal this task belongs to", gt=0)
     cycle_id: Optional[int] = Field(None, description="ID of the cycle this task belongs to, if applicable")
     occurrence_id: Optional[int] = Field(None, description="ID of goal occurrence this task is part of (if habit)")
+    
+    @validator('title')
+    def validate_title(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Title cannot be empty')
+        return v.strip()
+    
+    @validator('due_date')
+    def validate_due_date(cls, v):
+        # Allow any date - removed strict past date validation
+        return v
 
 # Schema for updating an existing task - Used for PUT/PATCH requests
 class TaskUpdate(BaseModel):
-    title: Optional[str] = Field(None, description="Title of the task")
+    title: Optional[str] = Field(None, description="Title of the task", min_length=1, max_length=200)
     due_date: Optional[date] = Field(None, description="Due date of the task")
     completed: Optional[bool] = Field(None, description="Whether the task is completed")
-    estimated_time: Optional[int] = Field(None, ge=0, description="Estimated time to complete the task in minutes")
-    goal_id: Optional[int] = Field(None, description="Update the parent goal ID")
+    estimated_time: Optional[int] = Field(None, ge=1, description="Estimated time to complete the task in hours")
+    goal_id: Optional[int] = Field(None, description="Update the parent goal ID", gt=0)
     cycle_id: Optional[int] = Field(None, description="Update the associated cycle ID (for habits)")
     occurrence_id: Optional[int] = Field(None, description="Reassign task to a different goal occurrence (optional)")
+    
+    @validator('title')
+    def validate_title(cls, v):
+        if v is not None and (not v or not v.strip()):
+            raise ValueError('Title cannot be empty')
+        return v.strip() if v else v
 
 
 # Schema for reading a task - Used for GET requests to retrieve task details
