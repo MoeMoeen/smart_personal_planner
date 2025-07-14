@@ -149,7 +149,7 @@ class Task(Base):
     goal = relationship("Goal", back_populates="tasks")
 
     # Relationship back to cycle (if applicable)
-    occurrence = relationship("GoalOccurrence", back_populates="tasks", cascade="all, delete-orphan")
+    occurrence = relationship("GoalOccurrence", back_populates="tasks")
 
 # === GOAL OCCURRENCE Per Cycle ===
 

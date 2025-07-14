@@ -27,6 +27,12 @@ def generate_plan_from_ai(request: GoalDescriptionRequest):
     """
     Generate a structured plan from a natural language goal description using AI.
     """
+    if goal_parser_chain is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="AI service is not available. Please configure OpenAI API key."
+        )
+    
     try:
         # Run the LangChain pipeline with the user's goal description
         generated_plan: GeneratedPlan = goal_parser_chain.invoke(
@@ -34,4 +40,7 @@ def generate_plan_from_ai(request: GoalDescriptionRequest):
         )
         return AIPlanResponse(plan=generated_plan)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to generate plan: {str(e)}"
+        )

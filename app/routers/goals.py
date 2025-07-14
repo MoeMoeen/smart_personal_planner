@@ -20,8 +20,13 @@ def create_habit_goal(
     """
     Create a new habit goal.
     """
-    db_goal = crud.create_habit_goal(db, goal_data)
-    return db_goal
+    try:
+        db_goal = crud.create_habit_goal(db, goal_data)
+        return db_goal
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # === CREATE PROJECT GOAL ===
 @router.post("/project/", response_model=schemas.GoalRead)
@@ -32,8 +37,13 @@ def create_project_goal(
     """
     Create a new project goal.
     """
-    db_goal = crud.create_project_goal(db, goal_data)
-    return db_goal
+    try:
+        db_goal = crud.create_project_goal(db, goal_data)
+        return db_goal
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # === GET GOAL BY ID ===
 @router.get("/{goal_id}", response_model=schemas.GoalRead)

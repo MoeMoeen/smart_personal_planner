@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.sqlite3
+*.db
 
 # Virtual environment
 .env/
@@ -18,3 +19,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Application specific
+smart_planner.db
