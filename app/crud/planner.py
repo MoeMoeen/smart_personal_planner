@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from app.models import HabitGoal, ProjectGoal, HabitCycle, GoalOccurrence
+from app.models import Task
 from app.ai.schemas import GeneratedPlan
 
 
@@ -45,10 +46,20 @@ def save_generated_plan(plan: GeneratedPlan, db: Session):
                 db_occurrence = GoalOccurrence(
                     occurrence_order=occurrence.occurrence_order,
                     estimated_effort=occurrence.estimated_effort,
-                    cycle=db_cycle
+                    # cycle=db_cycle
                 )
                 # Add tasks to the occurrence
-                
+                for task in occurrence.tasks or []:
+                    db_task = Task(
+                        title=task.title,
+                        due_date=task.due_date,
+                        estimated_time=task.estimated_time,
+                        completed=task.completed,
+                        # goal_id=db_goal.id,  # Link to the main goal
+                        # occurrence=db_occurrence  # Link to the occurrence
+                    )
+                    db_occurrence.tasks.append(db_task)
+
                 db_cycle.occurrences.append(db_occurrence)
             
             # Link cycle to the goal
@@ -67,5 +78,20 @@ def save_generated_plan(plan: GeneratedPlan, db: Session):
          # ✅ Add and flush to get goal.id before creating related records
         db.add(db_goal)
         db.flush()
+        # Add tasks directly to the project goal
+        for task in goal_data.tasks or []:
+            db_task = Task(
+                title=task.title,
+                due_date=task.due_date,
+                estimated_time=task.estimated_time,
+                completed=task.completed,
+                # goal_id=db_goal.id  # Link to the main project goal
+            )
+            db_goal.tasks.append(db_task)
+
+    # ✅ Commit the entire transaction
+
+    db.commit() # Commit everything
+    db.refresh(db_goal)  # Refresh to get the latest state with IDs with relationships
 
     return db_goal
