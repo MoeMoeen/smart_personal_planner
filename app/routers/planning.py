@@ -6,7 +6,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from app.ai.goal_parser_chain import goal_parser_chain, parser         # ✅ Your LangChain logic
-from app.ai.schemas import GeneratedPlan
+from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest
 from app.ai.goal_code_generator import GeneratedPlanWithCode, parser as code_parser, goal_code_chain 
 
 router = APIRouter(
@@ -91,3 +91,31 @@ def generate_plan_with_code(request: GoalDescriptionRequest):
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+@router.post("/submit-feedback")
+def submit_plan_feedback(request: PlanFeedbackRequest):
+    """
+    Submit feedback on a generated plan.
+    """
+
+    try:
+        # log the feedback for now.
+        print(f"Feedback received: {request.model_dump()}")
+        print(f"Feedback text: {request.feedback_text}")
+        print(f"Is approved: {request.is_approved}")
+        print(f"Suggested changes: {request.suggested_changes}")
+        print(f"User ID: {request.user_id}")
+        print(f"Timestamp: {request.timestamp}")
+        print(f"Plan ID: {request.plan_id}")
+        print(f"Suggested changes: {request.suggested_changes}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing feedback: {str(e)}")
+    
+
+    # Here you would typically save the feedback to the database
+    # For now, we just return it as a confirmation
+    return {
+        "message": "Feedback submitted successfully",
+        "feedback": request.model_dump(),
+    }

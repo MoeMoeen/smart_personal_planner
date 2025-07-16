@@ -40,6 +40,8 @@ class Goal(Base):
     # Shared relationship: all goal types can have many tasks
     tasks = relationship("Task", back_populates="goal", cascade="all, delete-orphan")
 
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Link to user
+
     # Polymorphism setup
     __mapper_args__ = {
         "polymorphic_on": goal_type,
@@ -53,6 +55,8 @@ class ProjectGoal(Goal):
     __tablename__ = "project_goals"
 
     id = Column(Integer, ForeignKey("goals.id"), primary_key=True)  # Inherits from Goal
+
+    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Link to user
 
     # Projects require explicit end dates
     end_date = Column(Date, nullable=False)
@@ -68,6 +72,8 @@ class HabitGoal(Goal):
     __tablename__ = "habit_goals"
 
     id = Column(Integer, ForeignKey("goals.id"), primary_key=True)  # Inherits from Goal
+
+    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Link to user
     
     end_date = Column(Date, nullable=True)  # Optional for open-ended habits
 
@@ -106,6 +112,9 @@ class HabitCycle(Base):
     # Foreign key to link to parent HabitGoal
     habit_id = Column(Integer, ForeignKey("goals.id"))
 
+    # Foreign key to link to the user
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
     # Label to identify the cycle (e.g. '2025-07' for monthly)
     cycle_label = Column(String, nullable=False)
 
@@ -129,6 +138,9 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
+
+    # Foreign key to user
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Task details
     title = Column(String, nullable=False)
@@ -158,6 +170,9 @@ class GoalOccurrence(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
+    # Foreign key to link to the user
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
     # Foreign key to link to a specific habit cycle
     cycle_id = Column(Integer, ForeignKey("habit_cycles.id"), nullable=False)
 
@@ -175,3 +190,12 @@ class GoalOccurrence(Base):
 
     # Each occurrence may have multiple tasks
     tasks = relationship("Task", back_populates="occurrence", cascade="all, delete-orphan")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(Date, nullable=False)

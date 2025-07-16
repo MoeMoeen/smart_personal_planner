@@ -19,6 +19,7 @@ class GoalBase(BaseModel):
     description: Optional[str] = Field(None, description="Description of the goal")
     progress: int = Field(0, ge=0, le=100, description="Progress percentage (0-100)")
     goal_type: GoalType = Field(..., description="Type of the goal (project or habit)")
+    user_id: int = Field(..., description="ID of the user who owns this goal")
 
 # === CREATE GOAL VARIANTS ===
 # Schema for creating a new project goal - Extended class for Project-specific fields
@@ -47,6 +48,7 @@ class HabitGoalUpdate(BaseModel):
     goal_frequency_per_cycle: Optional[int] = Field(None, gt=0, description="Update frequency per cycle")
     recurrence_cycle: Optional[str] = Field(None, description="Update cycle unit (daily, weekly, etc.)")
     default_estimated_time_per_cycle: Optional[int] = Field(None, description="Update default estimated time per cycle in hours")
+    user_id: Optional[int] = Field(None, description="Update the user ID if needed")
 
 # Schema for updating an existing project goal - Used for PUT/PATCH requests
 class ProjectGoalUpdate(BaseModel):
@@ -55,7 +57,8 @@ class ProjectGoalUpdate(BaseModel):
     start_date: Optional[date] = Field(None, description="Update the start date")
     end_date: Optional[date] = Field(None, description="Update the end date")
     progress: Optional[int] = Field(None, ge=0, le=100, description="Update progress score (0–100)")
-
+    user_id: Optional[int] = Field(None, description="Update the user ID if needed")
+    
 # === GOAL READ MODEL ===
 # Response model
 # Schema for reading a goal - Used for GET requests to retrieve goal details and for other goal-related operations
@@ -76,6 +79,7 @@ class TaskCreate(BaseModel):
     goal_id: int = Field(..., description="ID of the goal this task belongs to")
     cycle_id: Optional[int] = Field(None, description="ID of the cycle this task belongs to, if applicable")
     occurrence_id: Optional[int] = Field(None, description="ID of goal occurrence this task is part of (if habit)")
+    user_id: int = Field(..., description="ID of the user who owns this task")
 
 # Schema for updating an existing task - Used for PUT/PATCH requests
 class TaskUpdate(BaseModel):
@@ -86,6 +90,7 @@ class TaskUpdate(BaseModel):
     goal_id: Optional[int] = Field(None, description="Update the parent goal ID")
     cycle_id: Optional[int] = Field(None, description="Update the associated cycle ID (for habits)")
     occurrence_id: Optional[int] = Field(None, description="Reassign task to a different goal occurrence (optional)")
+    user_id: Optional[int] = Field(None, description="Update the user ID if needed")
 
 
 # Schema for reading a task - Used for GET requests to retrieve task details
@@ -103,6 +108,7 @@ class GoalOccurrenceRead(BaseModel):
     sequence_number: int = Field(..., description="Order of this occurrence in the cycle")
     estimated_effort: Optional[int] = Field(None, description="Estimated total hours for this goal occurrence")
     completed: bool = Field(False, description="Whether this goal occurrence has been completed")
+    user_id: int = Field(..., description="ID of the user who owns this occurrence")
 
     class Config:
         orm_mode = True
@@ -113,11 +119,13 @@ class GoalOccurrenceCreate(BaseModel):
     sequence_number: int = Field(..., description="Order of this occurrence in the cycle")
     estimated_effort: Optional[int] = Field(None, description="Estimated total hours for this goal occurrence")
     completed: bool = Field(False, description="Whether this goal occurrence has been completed")
+    user_id: int = Field(..., description="ID of the user who owns this occurrence")
 
 class GoalOccurrenceUpdate(BaseModel):
     sequence_number: Optional[int] = Field(None, description="Order of this occurrence in the cycle")
     estimated_effort: Optional[int] = Field(None, description="Estimated total hours for this goal occurrence")
     completed: Optional[bool] = Field(None, description="Whether this goal occurrence has been completed")
+    user_id: Optional[int] = Field(None, description="ID of the user who owns this occurrence")
 
 
 # === HABIT CYCLE READ-ONLY ===
@@ -130,6 +138,7 @@ class HabitCycleRead(BaseModel):
     cycle_label: str = Field(..., description="Label for the cycle (e.g., 'July 2025')")
     progress: int = Field(0, ge=0, le=100, description="Progress score for the cycle (0-100)")
     occurrences: List[GoalOccurrenceRead] = Field([], description="List of scheduled goal occurrences in this cycle")
+    user_id: int = Field(..., description="ID of the user who owns this cycle")
 
     class Config:
         orm_mode = True  # Enable ORM mode to read from SQLAlchemy models
@@ -141,5 +150,6 @@ class HabitCycleCreate(BaseModel):
     habit_id: int = Field(..., description="ID of the habit this cycle belongs to")
     cycle_label: str = Field(..., description="Label for the cycle (e.g., 'July 2025')")
     progress: int = Field(0, ge=0, le=100, description="Progress score for the cycle (0-100)")
+    user_id: int = Field(..., description="ID of the user who owns this cycle")
 
 

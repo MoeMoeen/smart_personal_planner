@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime, timezone
 
 # ------------------------------------------
 # ✅ 1. Task: The smallest unit of execution — one single task (under an occurrence)
@@ -76,3 +76,13 @@ class GeneratedPlan(BaseModel):
 #     The LLM should return a valid JSON object that matches this schema.
 #     """
 
+
+class PlanFeedbackRequest(BaseModel):
+    plan_id: int = Field(..., description="ID of the generated plan to provide feedback on")
+    feedback_text: str = Field(..., description="Feedback on the generated plan in natural language, e.g., 'too many tasks', 'missing details'")
+    is_approved: Optional[bool] = Field(..., description="Whether the plan is approved by the user or needs changes")
+    suggested_changes: Optional[str] = Field(None, description="Optional suggested changes to improve the plan")
+    # Optional fields for tracking feedback source and timestamp
+    user_id: Optional[int] = Field(None, description="Optional user ID for tracking feedback source")
+    timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="Optional timestamp of when the feedback was given")
+    
