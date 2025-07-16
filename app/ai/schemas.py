@@ -61,3 +61,18 @@ class GoalPlan(BaseModel):
 # ------------------------------------------------
 class GeneratedPlan(BaseModel):
     goal: GoalPlan = Field(..., description="The main goal being planned")
+
+
+# ------------------------------------------------
+# We'll now update your prompt template to instruct the LLM to output two structured blocks:
+# 1. A JSON plan
+# 2. A code snippet (Python) for how to persist the plan to DB
+
+# class GeneratedPlanWithCode(BaseModel):
+#     goal: GoalPlan = Field(..., description="The main goal being planned")
+#     code_snippet: str = Field(..., description="Python code snippet to save this plan to the database")
+#     """
+#     This schema includes both the structured goal plan and a code snippet for saving it.
+#     The LLM should return a valid JSON object that matches this schema.
+#     """
+
