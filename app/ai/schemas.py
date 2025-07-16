@@ -86,3 +86,9 @@ class PlanFeedbackRequest(BaseModel):
     user_id: Optional[int] = Field(None, description="Optional user ID for tracking feedback source")
     timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="Optional timestamp of when the feedback was given")
     
+class PlanRefinementRequest(BaseModel):
+    plan_id: int = Field(..., description="ID of the generated plan to refine")
+    custom_feedback: Optional[str] = Field(..., description="Custom feedback on how to improve the plan, e.g., 'Add more tasks', 'Change frequency'")
+    user_id: Optional[int] = Field(None, description="Optional user ID for tracking refinement source")
+    timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="Optional timestamp of when the refinement was requested")
+

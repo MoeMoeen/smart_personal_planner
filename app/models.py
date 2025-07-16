@@ -4,11 +4,14 @@ from sqlalchemy import (
     String,
     Boolean,
     Date,
+    DateTime,
     Enum,
     ForeignKey
 )
 from sqlalchemy.orm import relationship, declarative_base
 import enum
+from sqlalchemy.sql import func
+
 
 # Step 1: Create the SQLAlchemy base for all models
 Base = declarative_base()
@@ -40,7 +43,15 @@ class Goal(Base):
     # Shared relationship: all goal types can have many tasks
     tasks = relationship("Task", back_populates="goal", cascade="all, delete-orphan")
 
+    # Foreign key to link to the user who owns this goal
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Link to user
+
+    # Relationship back to the user
+    user = relationship("User", back_populates="goals")
+
+    # Relationship to plans
+    plan = relationship("Plan", back_populates="goal", uselist=True, cascade="all, delete-orphan")
+
 
     # Polymorphism setup
     __mapper_args__ = {
@@ -56,7 +67,7 @@ class ProjectGoal(Goal):
 
     id = Column(Integer, ForeignKey("goals.id"), primary_key=True)  # Inherits from Goal
 
-    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Link to user
+    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Link to user - already inherited from Goal
 
     # Projects require explicit end dates
     end_date = Column(Date, nullable=False)
@@ -131,6 +142,12 @@ class HabitCycle(Base):
     # Each cycle can have multiple occurrences (e.g., 1st, 2nd, etc.)
     occurrences = relationship("GoalOccurrence", back_populates="cycle", cascade="all, delete-orphan")
 
+    # Relationship back to the plan
+    plan = relationship("Plan", back_populates="cycles", uselist=False, cascade="all, delete-orphan")
+
+    # Relationship back to the user
+    user = relationship("User", back_populates="habit_cycles")
+
 # === TASK ===
 
 # Step 7: Define Task model (attached to either habit or project goals)
@@ -163,6 +180,12 @@ class Task(Base):
     # Relationship back to cycle (if applicable)
     occurrence = relationship("GoalOccurrence", back_populates="tasks", cascade="all, delete-orphan")
 
+    # Relationship back to user
+    user = relationship("User", back_populates="tasks")
+
+    # Relaitonship back to plan
+    plan = relationship("Plan", back_populates="tasks", uselist=False, cascade="all, delete-orphan")
+
 # === GOAL OCCURRENCE Per Cycle ===
 
 class GoalOccurrence(Base):
@@ -191,6 +214,12 @@ class GoalOccurrence(Base):
     # Each occurrence may have multiple tasks
     tasks = relationship("Task", back_populates="occurrence", cascade="all, delete-orphan")
 
+    # Relationship back to Plan
+    plan = relationship("Plan", back_populates="occurrences", uselist=False, cascade="all, delete-orphan")
+
+    # Relationship back to User
+    user = relationship("User", back_populates="goal_occurrences")
+
 
 class User(Base):
     __tablename__ = "users"
@@ -198,4 +227,79 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    created_at = Column(Date, nullable=False)
+    # created_at = Column(Date, nullable=False)
+
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationship to goals
+    goals = relationship("Goal", back_populates="user", cascade="all, delete-orphan")
+
+    # Relationship to tasks
+    tasks = relationship("Task", back_populates="user", cascade="all, delete-orphan")
+
+    # Relationship to plans
+    plans = relationship("Plan", back_populates="user", cascade="all, delete-orphan")
+
+    # Relationship to habit cycles
+    habit_cycles = relationship("HabitCycle", back_populates="user", cascade="all, delete-orphan")
+
+    # Relationship to goal occurrences
+    goal_occurrences = relationship("GoalOccurrence", back_populates="user", cascade="all, delete-orphan")
+
+    # Relationship to feedback
+    feedback = relationship("Feedback", back_populates="user", cascade="all, delete-orphan")
+
+class Plan(Base):
+    __tablename__ = "plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    goal_id = Column(Integer, ForeignKey("goals.id"), nullable=False)
+
+    # Relationship to the main goal
+    goal = relationship("Goal", back_populates="plan")
+
+    # Foreign key to link to the user who owns this plan
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # Relationship back to the user
+    user = relationship("User", back_populates="plans")
+
+    # Relationship to cycles (if applicable)
+    cycles = relationship("HabitCycle", back_populates="plan", cascade="all, delete-orphan")
+
+    # Relationship to occurrences (if applicable)
+    occurrences = relationship("GoalOccurrence", back_populates="plan", cascade="all, delete-orphan")
+
+    # Relationship to tasks (if applicable)
+    tasks = relationship("Task", back_populates="plan", cascade="all, delete-orphan")
+
+    # Relationship to feedback
+    feedback = relationship("Feedback", back_populates="plan", uselist=False, cascade="all, delete-orphan")
+
+    # Additional fields can be added as needed
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    feedback_text = Column(String, nullable=False)
+    # created_at = Column(Date, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationship back to the user
+    user = relationship("User", back_populates="feedback")
+
+    # Additional fields can be added as needed
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)  # Optional link to a specific plan
+    
+    # Relationship back to the plan
+    plan = relationship("Plan", back_populates="feedback", uselist=False, cascade="all, delete-orphan")

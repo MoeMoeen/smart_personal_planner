@@ -58,7 +58,7 @@ class ProjectGoalUpdate(BaseModel):
     end_date: Optional[date] = Field(None, description="Update the end date")
     progress: Optional[int] = Field(None, ge=0, le=100, description="Update progress score (0–100)")
     user_id: Optional[int] = Field(None, description="Update the user ID if needed")
-    
+
 # === GOAL READ MODEL ===
 # Response model
 # Schema for reading a goal - Used for GET requests to retrieve goal details and for other goal-related operations
@@ -152,4 +152,32 @@ class HabitCycleCreate(BaseModel):
     progress: int = Field(0, ge=0, le=100, description="Progress score for the cycle (0-100)")
     user_id: int = Field(..., description="ID of the user who owns this cycle")
 
+# === Plan Read ===
+class PlanRead(BaseModel):
+    id: int = Field(..., description="Unique identifier of the plan")
+    # goal: Optional[GoalRead] = Field(..., description="The main goal being planned")
+    user_id: Optional[int] = Field(..., description="ID of the user who owns this plan")
 
+    class Config:
+        orm_mode = True
+
+# === Plan Create ===
+class PlanCreate(BaseModel):
+    goal_id: int = Field(..., description="ID of the goal this plan is associated with")
+    user_id: int = Field(..., description="ID of the user who owns this plan")
+    # goal: GoalRead = Field(..., description="The main goal being planned")
+
+# === Feedback Read ===
+class FeedbackRead(BaseModel):
+    id: int = Field(..., description="Unique identifier of the feedback")
+    plan_id: int = Field(..., description="ID of the plan this feedback is associated with")
+    user_id: int = Field(..., description="ID of the user who provided this feedback")
+    feedback_text: str = Field(..., description="Content of the feedback")
+    created_at: date = Field(..., description="Date when the feedback was created")
+
+    class Config:
+        orm_mode = True
+
+
+
+    

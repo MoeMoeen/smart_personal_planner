@@ -16,3 +16,11 @@ An AI-powered personal goal planner that helps you:
 - ✅ Phase 1: Create goals, tasks, AI plans
 - 🔜 Phase 2: Track progress, send reminders
 - 🔮 Phase 3: Learn from behavior, personalize further
+
+
+### Short Term Todo
+- Save plan feedback to db
+- Add general logging via logger
+- Add smart logging from comments to auto-update later project todos or project roadmap
+- Once plan is approved, we'll use the ai-generated code to automatically save it to the db.
+

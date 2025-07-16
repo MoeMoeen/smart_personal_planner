@@ -6,8 +6,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from app.ai.goal_parser_chain import goal_parser_chain, parser         # ✅ Your LangChain logic
-from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest
+from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanRefinementRequest
 from app.ai.goal_code_generator import GeneratedPlanWithCode, parser as code_parser, goal_code_chain 
+from app.db import get_db  
+from sqlalchemy.orm import Session
+from app.crud import crud
 
 router = APIRouter(
     prefix="/planning",
@@ -112,10 +115,69 @@ def submit_plan_feedback(request: PlanFeedbackRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing feedback: {str(e)}")
     
-
-    # Here you would typically save the feedback to the database
+    # ✅ Here you would typically save the feedback to the database
     # For now, we just return it as a confirmation
     return {
         "message": "Feedback submitted successfully",
         "feedback": request.model_dump(),
     }
+
+@router.post("/refine-plan")
+def refine_plan(request: PlanRefinementRequest, db: Session = Depends(get_db)):
+    """
+    Refine a generated plan based on user feedback.
+    """
+    # 1. get the existing plan from the database
+    existing_plan = crud.get_plan_by_id(db, request.plan_id)
+
+    if not existing_plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    # 2. get the feedback if exists
+    feedback = crud.get_feedback_by_plan_id(db, request.plan_id)
+
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found for this plan")
+    
+    # 3. Build a feedback summary
+    feedback_instructions = ""
+    if feedback:
+        feedback_instructions += f"\n\nFeedback: {feedback.feedback_text}\n"
+        if feedback.suggested_changes:
+            feedback_instructions += f"Suggested changes: {feedback.suggested_changes}\n"
+        
+    if request.custom_feedback:
+        feedback_instructions += f"\nCustom feedback: {request.custom_feedback}\n"
+
+
+    # If no feedback is provided, we can use the existing plan description
+    if not feedback_instructions:
+        feedback_instructions = existing_plan.goal.description or existing_plan.goal.title
+
+    feedback_instructions = feedback_instructions.strip()
+
+    # 4. Combine into prompt input
+    ai_input = {
+        "goal_description": existing_plan.goal.description or existing_plan.goal.title,
+        # "format_instructions": parser.get_format_instructions(),
+        "prior_feedback": feedback_instructions
+    }
+
+    # 5. Run the AI Chain: Invoke the goal parser chain with the feedback
+    try:
+        refined_plan: GeneratedPlan = goal_parser_chain.invoke(ai_input)
+
+        # Validate the refined plan
+        if not refined_plan or not refined_plan.goal:
+            raise HTTPException(status_code=500, detail="Refined plan generation failed")
+        
+        if not isinstance(refined_plan, GeneratedPlan):
+            raise HTTPException(status_code=500, detail="Refined plan is not valid")
+
+        return AIPlanResponse(
+            plan=refined_plan,
+            source="AI-Refined",
+            ai_version="1.2"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error refining plan: {str(e)}")
