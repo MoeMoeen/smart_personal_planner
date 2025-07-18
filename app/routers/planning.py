@@ -5,53 +5,44 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from app.ai.goal_parser_chain import goal_parser_chain, parser         # ✅ Your LangChain logic
-from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanRefinementRequest
+from app.ai.goal_parser_chain import goal_parser_chain, parser, refine_plan_chain         # ✅ Your LangChain logic
+from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanRefinementRequest, GoalDescriptionRequest, AIPlanResponse, AIPlanWithCodeResponse
 from app.ai.goal_code_generator import GeneratedPlanWithCode, parser as code_parser, goal_code_chain 
 from app.db import get_db  
 from sqlalchemy.orm import Session
-from app.crud import crud
+from app.crud import crud, planner
 
 router = APIRouter(
     prefix="/planning",
     tags=["AI Planning"]
 )
-
-# ✅ Input schema for the user’s natural language goal
-class GoalDescriptionRequest(BaseModel):
-    goal_description: str = Field(..., description="User's natural language description of the goal")  
-
-# ✅ Output schema: the full structured plan
-class AIPlanResponse(BaseModel):
-    plan: GeneratedPlan = Field(..., description="AI-generated structured plan")
-    source: str = Field(default="AI", description="Source of the generated plan")   
-    ai_version: str = Field(default="1.0", description="Version of the AI model used")
-
-# ✅ Output schema for plan with code snippet
-# 👇 This is what we expose as FastAPI response
-
-class AIPlanWithCodeResponse(GeneratedPlanWithCode):
-    # plan: GeneratedPlanWithCode = Field(..., description="AI-generated structured plan with code snippet")
-    # code_block: str = Field(..., description="Python code snippet to save this plan to the database")   
-    source: str = Field(default="AI", description="Source of the generated plan")   
-    ai_version: str = Field(default="1.0", description="Version of the AI model used")
-
+# ------------------------------------------------
 
 # ✅ Main route: POST /planning/ai-generate-plan
 @router.post("/ai-generate-plan", response_model=AIPlanResponse)
-def generate_plan_from_ai(request: GoalDescriptionRequest):
+def generate_plan_from_ai(request: GoalDescriptionRequest, db: Session = Depends(get_db)):
     """
     Generate a structured plan from a natural language goal description using AI.
     """
     try:
         # Run the LangChain pipeline with the user's goal description
-        generated_plan: GeneratedPlan = goal_parser_chain.invoke(
+        generated_plan : GeneratedPlan = goal_parser_chain.invoke(
             {
                 "goal_description": request.goal_description,
                 "format_instructions": parser.get_format_instructions()
             }    
-        )
+        )["plan"]
+        
         response = AIPlanResponse(plan=generated_plan, source="AI", ai_version="1.0")
+
+        saved_goal = planner.save_generated_plan(
+            plan=generated_plan,
+            db=db,
+            user_id=request.user_id  # Pass the user ID
+        )
+        # Log the saved goal ID
+        print(f"Generated plan saved with goal ID: {saved_goal.id}")
+
         # Return the structured plan as JSON
         return response
     except Exception as e:
@@ -87,7 +78,7 @@ def generate_plan_with_code(request: GoalDescriptionRequest):
         # Create the response object
         response = AIPlanWithCodeResponse(
             plan=generated_plan_with_code.plan,
-            code_snippet=generated_plan_with_code.code_snippet,
+            code_block=generated_plan_with_code.code_snippet,
             source="AI+Code",
             ai_version="1.1"
         )
@@ -96,8 +87,8 @@ def generate_plan_with_code(request: GoalDescriptionRequest):
         raise HTTPException(status_code=500, detail=str(e))
     
 
-@router.post("/submit-feedback")
-def submit_plan_feedback(request: PlanFeedbackRequest):
+@router.post("/plan-feedback")
+def plan_feedback(request: PlanFeedbackRequest, db: Session = Depends(get_db)):
     """
     Submit feedback on a generated plan.
     """
@@ -115,12 +106,42 @@ def submit_plan_feedback(request: PlanFeedbackRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing feedback: {str(e)}")
     
-    # ✅ Here you would typically save the feedback to the database
-    # For now, we just return it as a confirmation
-    return {
-        "message": "Feedback submitted successfully",
-        "feedback": request.model_dump(),
-    }
+    if request.is_approved is None:
+        raise HTTPException(status_code=400, detail="is_approved must be provided")
+
+    try:
+        # Save the feedback to the database
+        feedback = crud.create_feedback(db=db, feedback_data=request)
+        if request.is_approved:
+            print("Marking plan as approved.")
+            plan = crud.get_plan_by_id(db, request.plan_id)
+            if plan:
+                setattr(plan, "is_approved", True)  # Mark the plan as approved (ensure is_approved is a boolean field in your Plan model)
+                db.commit()
+                db.refresh(plan)
+                print(f"Plan {plan.id} marked as approved.")
+
+                return {
+                    "message": "Plan approved and stored successfully",
+                    "feedback": feedback.model_dump(),
+                    "plan_id": plan.id,
+                    "is_approved": request.is_approved,
+                }
+            
+            else:
+                raise HTTPException(status_code=404, detail="Plan not found for the provided ID {request.plan_id}")
+        else:
+            print("Plan not approved, no changes made to the plan. Only feedback stored.")
+            return {
+                "message": "Refinement needed. Feedback stored successfully, plan not approved.",
+                "feedback": feedback.model_dump(),
+                "is_approved": request.is_approved,
+            }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving feedback: {str(e)}")
+
+# ------------------------------------------------
 
 @router.post("/refine-plan")
 def refine_plan(request: PlanRefinementRequest, db: Session = Depends(get_db)):
@@ -165,7 +186,7 @@ def refine_plan(request: PlanRefinementRequest, db: Session = Depends(get_db)):
 
     # 5. Run the AI Chain: Invoke the goal parser chain with the feedback
     try:
-        refined_plan: GeneratedPlan = goal_parser_chain.invoke(ai_input)
+        refined_plan: GeneratedPlan = refine_plan_chain.invoke(ai_input)["plan"]
 
         # Validate the refined plan
         if not refined_plan or not refined_plan.goal:

@@ -178,6 +178,11 @@ class FeedbackRead(BaseModel):
     class Config:
         orm_mode = True
 
+class FeedbackCreate(BaseModel):
+    plan_id: int = Field(..., description="ID of the plan this feedback is associated with")
+    user_id: int = Field(..., description="ID of the user who provided this feedback")
+    feedback_text: str = Field(..., description="Content of the feedback")
+    created_at: Optional[date] = Field(None, description="Date when the feedback was created, defaults to today")
 
 
     

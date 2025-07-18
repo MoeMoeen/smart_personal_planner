@@ -99,7 +99,6 @@ class HabitGoal(Goal):
     # Cycle type: daily, weekly, monthly, quarterly, annual, etc.
     recurrence_cycle = Column(String, nullable=False)
 
-    
     # Relationship to individual cycles (e.g. July 2025, Aug 2025, etc.). All habits have cycles.
     cycles = relationship("HabitCycle", back_populates="habit", cascade="all, delete-orphan")
 
@@ -121,10 +120,13 @@ class HabitCycle(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # Foreign key to link to parent HabitGoal
-    habit_id = Column(Integer, ForeignKey("goals.id"))
+    habit_id = Column(Integer, ForeignKey("habit_goals.id"))
 
     # Foreign key to link to the user
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # Foreign key to link to the plan
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)
 
     # Label to identify the cycle (e.g. '2025-07' for monthly)
     cycle_label = Column(String, nullable=False)
@@ -143,7 +145,7 @@ class HabitCycle(Base):
     occurrences = relationship("GoalOccurrence", back_populates="cycle", cascade="all, delete-orphan")
 
     # Relationship back to the plan
-    plan = relationship("Plan", back_populates="cycles", uselist=False, cascade="all, delete-orphan")
+    plan = relationship("Plan", back_populates="cycles", uselist=False)
 
     # Relationship back to the user
     user = relationship("User", back_populates="habit_cycles")
@@ -158,7 +160,10 @@ class Task(Base):
 
     # Foreign key to user
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-
+    
+    # Foreign key to link to the plan
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)
+    
     # Task details
     title = Column(String, nullable=False)
     due_date = Column(Date, nullable=True)
@@ -178,15 +183,15 @@ class Task(Base):
     goal = relationship("Goal", back_populates="tasks")
 
     # Relationship back to cycle (if applicable)
-    occurrence = relationship("GoalOccurrence", back_populates="tasks", cascade="all, delete-orphan")
+    occurrence = relationship("GoalOccurrence", back_populates="tasks")
 
     # Relationship back to user
     user = relationship("User", back_populates="tasks")
 
     # Relaitonship back to plan
-    plan = relationship("Plan", back_populates="tasks", uselist=False, cascade="all, delete-orphan")
+    plan = relationship("Plan", back_populates="tasks", uselist=False)
 
-# === GOAL OCCURRENCE Per Cycle ===
+# === GOAL OCCURRENCE PER CYCLE ===
 
 class GoalOccurrence(Base):
     __tablename__ = "goal_occurrences"
@@ -199,8 +204,11 @@ class GoalOccurrence(Base):
     # Foreign key to link to a specific habit cycle
     cycle_id = Column(Integer, ForeignKey("habit_cycles.id"), nullable=False)
 
+    # Foreign key to link to the plan
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)
+
     # Order of occurrence within the cycle, e.g., 1st, 2nd, etc.
-    sequence_number = Column(Integer, nullable=False)
+    occurrence_order = Column(Integer, nullable=False)
 
     # Optional total estimated effort in hours for this occurrence
     estimated_effort = Column(Integer, nullable=True)
@@ -215,7 +223,7 @@ class GoalOccurrence(Base):
     tasks = relationship("Task", back_populates="occurrence", cascade="all, delete-orphan")
 
     # Relationship back to Plan
-    plan = relationship("Plan", back_populates="occurrences", uselist=False, cascade="all, delete-orphan")
+    plan = relationship("Plan", back_populates="occurrences", uselist=False, single_parent=True)
 
     # Relationship back to User
     user = relationship("User", back_populates="goal_occurrences")
@@ -256,6 +264,7 @@ class Plan(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     goal_id = Column(Integer, ForeignKey("goals.id"), nullable=False)
+    is_approved = Column(Boolean, default=False, nullable=False)
 
     # Relationship to the main goal
     goal = relationship("Goal", back_populates="plan")
@@ -267,7 +276,7 @@ class Plan(Base):
     user = relationship("User", back_populates="plans")
 
     # Relationship to cycles (if applicable)
-    cycles = relationship("HabitCycle", back_populates="plan", cascade="all, delete-orphan")
+    cycles = relationship("HabitCycle", back_populates="plan", cascade="all, delete-orphan", single_parent=True)
 
     # Relationship to occurrences (if applicable)
     occurrences = relationship("GoalOccurrence", back_populates="plan", cascade="all, delete-orphan")
@@ -276,7 +285,7 @@ class Plan(Base):
     tasks = relationship("Task", back_populates="plan", cascade="all, delete-orphan")
 
     # Relationship to feedback
-    feedback = relationship("Feedback", back_populates="plan", uselist=False, cascade="all, delete-orphan")
+    feedback = relationship("Feedback", back_populates="plan", cascade="all, delete-orphan", uselist=False)
 
     # Additional fields can be added as needed
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -289,6 +298,7 @@ class Feedback(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False, unique=True)  # Ensure one-to-one
     feedback_text = Column(String, nullable=False)
     # created_at = Column(Date, nullable=False)
 
@@ -298,8 +308,6 @@ class Feedback(Base):
     # Relationship back to the user
     user = relationship("User", back_populates="feedback")
 
-    # Additional fields can be added as needed
-    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)  # Optional link to a specific plan
     
     # Relationship back to the plan
-    plan = relationship("Plan", back_populates="feedback", uselist=False, cascade="all, delete-orphan")
+    plan = relationship("Plan", back_populates="feedback")

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app import models, schemas
+from app.ai.schemas import PlanFeedbackRequest, PlanRefinementRequest
 
 # === GOAL CRUD OPERATIONS ===
 
@@ -151,6 +152,7 @@ def delete_goal_occurrence(db: Session, occurrence_id: int) -> Optional[models.G
     db.commit()
     return db_occurrence
 
+# === PLAN CRUD OPERATIONS ===
 # Create Plan
 def create_plan(db: Session, plan_data: schemas.PlanCreate) -> models.Plan:
     db_plan = models.Plan(**plan_data.model_dump())
@@ -163,6 +165,22 @@ def create_plan(db: Session, plan_data: schemas.PlanCreate) -> models.Plan:
 def get_plan_by_id(db: Session, plan_id: int) -> Optional[models.Plan]:
     return db.query(models.Plan).filter(models.Plan.id == plan_id).first()
 
+
 # Get Feedback by Plan ID
 def get_feedback_by_plan_id(db: Session, plan_id: int) -> Optional[models.Feedback]:
     return db.query(models.Feedback).filter(models.Feedback.plan_id == plan_id).first()
+
+# create_feedback
+def create_feedback(db: Session, feedback_data: PlanFeedbackRequest) -> models.Feedback:
+    feedback = models.Feedback(
+        plan_id=feedback_data.plan_id,
+        feedback_text=feedback_data.feedback_text,
+        is_approved=feedback_data.is_approved,
+        suggested_changes=feedback_data.suggested_changes,
+        user_id=feedback_data.user_id,
+        created_at=feedback_data.timestamp
+    )
+    db.add(feedback)
+    db.commit()
+    db.refresh(feedback)
+    return feedback

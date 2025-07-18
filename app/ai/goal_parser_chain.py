@@ -5,11 +5,13 @@
 
 from langchain_openai import ChatOpenAI                     # ✅ Interface to OpenAI chat models
 from langchain.prompts import ChatPromptTemplate            # ✅ Helps define reusable prompt structure
-from langchain.output_parsers import PydanticOutputParser   # ✅ Enforces Pydantic schema on LLM output
+from langchain.output_parsers import PydanticOutputParser, OutputFixingParser   # ✅ Enforces Pydantic schema on LLM output
 from app.ai.schemas import GeneratedPlan                    # ✅ Import your structured schema
 import os                                                   # ✅ For environment variable access     
 from pydantic import SecretStr
 from decouple import config
+from langchain.schema.runnable import RunnableMap
+
 
 #Create a reusable LangChain pipeline that:
 # Accepts a natural language input (user’s goal description)
@@ -18,15 +20,29 @@ from decouple import config
 
 
 # ✅ Create an output parser that forces LLM to return `GeneratedPlan` schema
-parser = PydanticOutputParser(pydantic_object=GeneratedPlan)
+base_parser = PydanticOutputParser(pydantic_object=GeneratedPlan)
+
+openai_api_key_str = str(config("OPENAI_API_KEY"))
+llm_for_fixing = ChatOpenAI(
+    model=os.getenv("OPENAI_MODEL", "gpt-4"),
+    temperature=0.2,
+    api_key=SecretStr(openai_api_key_str)
+)
+
+parser = OutputFixingParser(
+    parser=base_parser,
+    retry_chain=llm_for_fixing,
+    # This will ensure the LLM outputs valid JSON that matches the GeneratedPlanWithCode schema
+)
 
 # ✅ Define the prompt template with placeholders for dynamic content, i.e, for the LLM (system + user)
 # ✅ Create the system prompt that guides the LLM
-prompt_template = ChatPromptTemplate.from_template(
-    """
-    You are a smart personal planner.
-
-    Given a user's natural language description of a goal, generate a structured goal planning breakdown.
+prompt_template = ChatPromptTemplate.from_messages([
+    ("system", "You are a smart AI personal planner."),
+    ("user",
+     """
+    A user will describe a personal goal in natural language. 
+    Given the user's natural language description of a goal, generate a structured goal planning breakdown.
 
     Your response MUST:
     - Follow the JSON structure defined by this format:
@@ -45,10 +61,50 @@ prompt_template = ChatPromptTemplate.from_template(
 
     User goal: {goal_description}
     """
-)
+    )
+])
+
+# app/ai/refinement_prompt.py (or you can inline it in goal_parser_chain.py if preferred)
+
+
+refinement_prompt_template = ChatPromptTemplate.from_messages([
+    ("system", 
+     "You are a smart AI personal planner who improves goal planning based on user feedback."),
+    ("user",
+     """
+    The user previously generated a structured goal plan, but they provided feedback that it needs refinement.
+
+    Your task is to take the existing plan and the user's feedback, and generate a new, improved structured plan. 
+    
+    Here is the user's original goal description:
+
+    {goal_description}
+
+    Below is the feedback and suggestions provided by the user:
+
+    {prior_feedback}
+
+    Use this feedback to revise and improve the original structured plan.
+
+    Requirements:
+    - Your output must strictly follow the structured plan schema.
+    - ONLY return a valid JSON object.
+    - Do NOT include any explanation or commentary.
+
+    Your response MUST:
+    - Follow the JSON structure defined by this format:
+    {format_instructions}
+
+        """)
+    ])
+
 
 # ✅ Bind the format instructions
 prompt = prompt_template.partial(format_instructions=parser.get_format_instructions())
+
+refinement_prompt_template = refinement_prompt_template.partial(
+    format_instructions=parser.get_format_instructions()
+)
 
 
 # ✅ Connect the LLM (OpenAI model — use GPT-4 or GPT-3.5)
@@ -67,7 +123,14 @@ llm = ChatOpenAI(**llm_kwargs)
 # ✅ Create the goal parser chain that combines the prompt, LLM, and output parser
 # ✅ Combine everything into a full chain: prompt → LLM → parser
 
-goal_parser_chain = (
-    prompt | llm | parser
-)
+goal_parser_chain = RunnableMap({
+    "plan" : prompt | llm | parser
+})
+
+
+# ✅ Create the refinement chain that uses the refinement prompt, LLM, and output parser
+refine_plan_chain = RunnableMap({
+    "plan" : refinement_prompt_template | llm | parser
+})
+
 

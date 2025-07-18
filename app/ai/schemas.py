@@ -44,13 +44,17 @@ class GoalPlan(BaseModel):
     end_date: Optional[date] = Field(None, description="End date or deadline of the goal")
     progress: int = Field(0, ge=0, le=100, description="Overall progress score (0–100%)")
     goal_type: str = Field(..., description="Either 'habit' or 'project'")
+    user_id: Optional[int] = Field(None, description="Optional user ID for tracking ownership")
+    # plan_id: Optional[int] = Field(None, description="Optional plan ID for tracking")
+    # feedback_id: Optional[int] = Field(None, description="Optional feedback ID for tracking")
+    # refine_id: Optional[int] = Field(None, description="Optional refinement ID for tracking")
     
     # Habit-specific logic
     recurrence_cycle: Optional[str] = Field(None, description="e.g., daily, weekly, monthly")
     goal_frequency_per_cycle: Optional[int] = Field(None, description="How many times per cycle the goal should be achieved")
     goal_recurrence_count: Optional[int] = Field(None, description="How many cycles should be planned (e.g. 6 months)")
-    default_estimated_effort_per_occurrence: Optional[int] = Field(None, description="Optional default effort per goal instance")
-
+    default_estimated_time_per_cycle: Optional[int] = Field(None, description="Optional default effort per goal instance")
+    
     # Structure
     habit_cycles: Optional[List[HabitCyclePlan]] = Field(None, description="Defined only for habit goals")
     tasks: Optional[List[TaskPlan]] = Field(None, description="Defined only for project goals")
@@ -62,20 +66,9 @@ class GoalPlan(BaseModel):
 class GeneratedPlan(BaseModel):
     goal: GoalPlan = Field(..., description="The main goal being planned")
 
-
 # ------------------------------------------------
-# We'll now update your prompt template to instruct the LLM to output two structured blocks:
-# 1. A JSON plan
-# 2. A code snippet (Python) for how to persist the plan to DB
-
-# class GeneratedPlanWithCode(BaseModel):
-#     goal: GoalPlan = Field(..., description="The main goal being planned")
-#     code_snippet: str = Field(..., description="Python code snippet to save this plan to the database")
-#     """
-#     This schema includes both the structured goal plan and a code snippet for saving it.
-#     The LLM should return a valid JSON object that matches this schema.
-#     """
-
+# ✅ 6. Plan feedback request schema. This is used to submit feedback on a generated plan.
+# ------------------------------------------------
 
 class PlanFeedbackRequest(BaseModel):
     plan_id: int = Field(..., description="ID of the generated plan to provide feedback on")
@@ -85,7 +78,33 @@ class PlanFeedbackRequest(BaseModel):
     # Optional fields for tracking feedback source and timestamp
     user_id: Optional[int] = Field(None, description="Optional user ID for tracking feedback source")
     timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="Optional timestamp of when the feedback was given")
-    
+
+# ------------------------------------------------
+
+# ✅ Input schema for the user’s natural language goal
+class GoalDescriptionRequest(BaseModel):
+    goal_description: str = Field(..., description="User's natural language description of the goal")
+    user_id: int = Field(..., description="ID of the user who owns this goal")  
+
+# ✅ Output schema: the full structured plan
+class AIPlanResponse(BaseModel):
+    plan: GeneratedPlan = Field(..., description="AI-generated structured plan")
+    source: str = Field(default="AI", description="Source of the generated plan")   
+    ai_version: str = Field(default="1.0", description="Version of the AI model used")
+
+# ✅ Output schema for plan with code snippet
+# 👇 This is what we expose as FastAPI response
+
+class GeneratedPlanWithCode(BaseModel):
+    plan: GeneratedPlan = Field(..., description="AI-generated structured plan")
+    code_block: str = Field(..., description="Python code snippet to save this plan to the database")
+
+class AIPlanWithCodeResponse(GeneratedPlanWithCode):
+    source: str = Field(default="AI", description="Source of the generated plan")   
+    ai_version: str = Field(default="1.0", description="Version of the AI model used")
+
+
+
 class PlanRefinementRequest(BaseModel):
     plan_id: int = Field(..., description="ID of the generated plan to refine")
     custom_feedback: Optional[str] = Field(..., description="Custom feedback on how to improve the plan, e.g., 'Add more tasks', 'Change frequency'")
