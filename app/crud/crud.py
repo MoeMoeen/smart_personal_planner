@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app import models, schemas
-from app.ai.schemas import PlanFeedbackRequest, PlanRefinementRequest
+from app.ai.schemas import PlanFeedbackRequest, PlanFeedbackAction
 
 # === GOAL CRUD OPERATIONS ===
 
@@ -174,8 +174,9 @@ def get_feedback_by_plan_id(db: Session, plan_id: int) -> Optional[models.Feedba
 def create_feedback(db: Session, feedback_data: PlanFeedbackRequest) -> models.Feedback:
     feedback = models.Feedback(
         plan_id=feedback_data.plan_id,
+        goal_id=feedback_data.goal_id,
         feedback_text=feedback_data.feedback_text,
-        is_approved=feedback_data.is_approved,
+        plan_feedback_action=feedback_data.plan_feedback_action,
         suggested_changes=feedback_data.suggested_changes,
         user_id=feedback_data.user_id,
         created_at=feedback_data.timestamp
@@ -184,3 +185,7 @@ def create_feedback(db: Session, feedback_data: PlanFeedbackRequest) -> models.F
     db.commit()
     db.refresh(feedback)
     return feedback
+
+# get feedbacks by goal ID
+def get_feedbacks_by_goal_id(db: Session, goal_id: int) -> List[models.Feedback]:
+    return db.query(models.Feedback).filter(models.Feedback.goal_id == goal_id).order_by(models.Feedback.created_at).all()

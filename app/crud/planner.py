@@ -1,10 +1,16 @@
 from sqlalchemy.orm import Session
 from app.models import HabitGoal, ProjectGoal, HabitCycle, GoalOccurrence
-from app.models import Task
+from app.models import Task, Plan
+from app.ai.schemas import GeneratedPlan, AIPlanResponse
+
 from app.ai.schemas import GeneratedPlan
+from app.models import Plan, Feedback
+from sqlalchemy.orm import Session
+from app.ai.goal_parser_chain import refine_plan_chain
+from fastapi import HTTPException
 
 
-def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int) -> HabitGoal | ProjectGoal:
+def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int) -> Plan:
     """
     Save the AI-generated plan into the database.
     Dynamically chooses the goal model (HabitGoal or ProjectGoal) based on goal_type.
@@ -103,8 +109,74 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int) -> Habit
             db_goal.tasks.append(db_task)
 
     # ✅ Commit the entire transaction
-
+    
     db.commit() # Commit everything
     db.refresh(db_goal)  # Refresh to get the latest state with IDs with relationships
 
-    return db_goal
+    db_plan = Plan(
+        goal_id=db_goal.id,
+        user_id=user_id,  # Set the user ID for tracking ownership
+        is_approved=False,  # Initial state
+    )
+    db.add(db_plan)
+    db.commit()  # Commit the plan as well
+    db.refresh(db_plan)  # Refresh to get the latest state
+    
+    # ✅ Return the created plan
+    return db_plan
+
+# ------------------------------------------------
+
+def generate_refined_plan_from_feedback(plan_id: int, db: Session) -> AIPlanResponse:
+    """
+    Re-run the LangChain plan parser with accumulated feedback for a given plan.
+    Returns a new GeneratedPlan object.
+    """
+    # Get the plan
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    if not plan:
+        raise ValueError("Plan not found")
+
+    # Get the goal
+    goal_id = plan.goal_id
+    
+    # Get all feedbacks linked to this goal (across all related plans)
+    all_feedback = (
+        db.query(Feedback)
+        .filter(Feedback.plan.has(goal_id=goal_id))
+        .order_by(Feedback.created_at)
+        .all()
+    )
+
+    # Accumulate all feedbacks
+    accumulated_feedback_instructions = ""
+    for f in all_feedback:
+        accumulated_feedback_instructions += "\n- " + f.feedback_text
+        if getattr(f, "suggested_changes", None):
+            accumulated_feedback_instructions += f" (Suggested: {f.suggested_changes})"
+
+    refinement_prompt_input = {
+        "goal_description": plan.goal.description or plan.goal.title,
+        "prior_feedback": accumulated_feedback_instructions.strip()
+    }
+
+    # Call the refinement AI chain: Invoke the goal parser chain with the accumulated feedback
+    try:
+        refined_plan = refine_plan_chain.invoke(refinement_prompt_input)["plan"]
+
+        # Validate the refined plan
+        if not refined_plan or not refined_plan.goal:
+            raise HTTPException(status_code=500, detail="Refined plan generation failed")
+        
+        if not isinstance(refined_plan, GeneratedPlan):
+            raise HTTPException(status_code=500, detail="Refined plan is not valid")
+
+        return AIPlanResponse(
+            plan=refined_plan,
+            source="AI-Refined",
+            ai_version="1.2"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error refining plan: {str(e)}")
+
+# ------------------------------------------------

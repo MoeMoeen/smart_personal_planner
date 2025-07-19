@@ -5,9 +5,9 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
-    Enum,
     ForeignKey
 )
+from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.orm import relationship, declarative_base
 import enum
 from sqlalchemy.sql import func
@@ -35,7 +35,7 @@ class Goal(Base):
     # Shared fields
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
-    goal_type = Column(Enum(GoalType), nullable=False)
+    goal_type = Column(SQLAlchemyEnum(GoalType), nullable=False)
 
     # Shared progress field (0–100), derived from tasks or cycle completion
     progress = Column(Integer, default=0)
@@ -52,12 +52,18 @@ class Goal(Base):
     # Relationship to plans
     plan = relationship("Plan", back_populates="goal", uselist=True, cascade="all, delete-orphan")
 
+    # Relationship to feedback
+    feedback = relationship("Feedback", back_populates="goal", cascade="all, delete-orphan")
+
 
     # Polymorphism setup
     __mapper_args__ = {
         "polymorphic_on": goal_type,
         "polymorphic_identity": "goal",
     }
+
+    def __repr__(self):
+        return f"<Goal(id={self.id}, title={self.title}, start_date={self.start_date}, goal_type={self.goal_type})>"
 
 # === PROJECT GOAL (SUBCLASS) ===
 
@@ -75,6 +81,9 @@ class ProjectGoal(Goal):
     __mapper_args__ = {
         "polymorphic_identity": "project",
     }
+
+    def __repr__(self):
+        return f"<ProjectGoal(id={self.id}, title={self.title}, start_date={self.start_date}, end_date={self.end_date})>"
 
 # === HABIT GOAL (SUBCLASS) ===
 # Note: Habit goals are recurring and can have multiple cycles
@@ -109,6 +118,9 @@ class HabitGoal(Goal):
     __mapper_args__ = {
         "polymorphic_identity": "habit",
     }
+
+    def __repr__(self):
+        return f"<HabitGoal(id={self.id}, title={self.title}, start_date={self.start_date}, recurrence_cycle={self.recurrence_cycle})>"
 
     
 # === HABIT CYCLE ===
@@ -149,6 +161,9 @@ class HabitCycle(Base):
 
     # Relationship back to the user
     user = relationship("User", back_populates="habit_cycles")
+
+    def __repr__(self):
+        return f"<HabitCycle(id={self.id}, cycle_label={self.cycle_label}, start_date={self.start_date}, end_date={self.end_date})>"
 
 # === TASK ===
 
@@ -191,6 +206,9 @@ class Task(Base):
     # Relaitonship back to plan
     plan = relationship("Plan", back_populates="tasks", uselist=False)
 
+    def __repr__(self):
+        return f"<Task(id={self.id}, title={self.title}, due_date={self.due_date}, completed={self.completed})>"
+
 # === GOAL OCCURRENCE PER CYCLE ===
 
 class GoalOccurrence(Base):
@@ -228,6 +246,9 @@ class GoalOccurrence(Base):
     # Relationship back to User
     user = relationship("User", back_populates="goal_occurrences")
 
+    def __repr__(self):
+        return f"<GoalOccurrence(id={self.id}, occurrence_order={self.occurrence_order}, cycle_id={self.cycle_id})>"
+
 
 class User(Base):
     __tablename__ = "users"
@@ -258,6 +279,9 @@ class User(Base):
 
     # Relationship to feedback
     feedback = relationship("Feedback", back_populates="user", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<User(id={self.id}, email={self.email})>"
 
 class Plan(Base):
     __tablename__ = "plans"
@@ -291,7 +315,13 @@ class Plan(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    def __repr__(self):
+        return f"<Plan(id={self.id}, goal_id={self.goal_id}, is_approved={self.is_approved}, user_id={self.user_id})>"
+
     
+class PlanFeedbackAction(str, enum.Enum):
+    APPROVE = "approve"
+    REQUEST_REFINEMENT = "request_refinement"
 
 class Feedback(Base):
     __tablename__ = "feedback"
@@ -300,10 +330,17 @@ class Feedback(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False, unique=True)  # Ensure one-to-one
     feedback_text = Column(String, nullable=False)
+    suggested_changes = Column(String, nullable=True)
+    plan_feedback_action = Column(SQLAlchemyEnum(PlanFeedbackAction, name="PlanFeedbackAction"), nullable=False)
     # created_at = Column(Date, nullable=False)
-
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    goal_id = Column(Integer, ForeignKey("goals.id"), nullable=False) # Link to the goal being planned
+
+    # Relationship back to the goal
+    goal = relationship("Goal", back_populates="feedback", uselist=False)
 
     # Relationship back to the user
     user = relationship("User", back_populates="feedback")
@@ -311,3 +348,6 @@ class Feedback(Base):
     
     # Relationship back to the plan
     plan = relationship("Plan", back_populates="feedback")
+
+    def __repr__(self):
+        return f"<Feedback(id={self.id}, user_id={self.user_id}, plan_id={self.plan_id}, goal_id={self.goal_id}, feedback_text={self.feedback_text})>"

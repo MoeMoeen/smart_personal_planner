@@ -5,12 +5,13 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from app.ai.goal_parser_chain import goal_parser_chain, parser, refine_plan_chain         # ✅ Your LangChain logic
-from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanRefinementRequest, GoalDescriptionRequest, AIPlanResponse, AIPlanWithCodeResponse
+from app.ai.goal_parser_chain import goal_parser_chain, parser
+from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanFeedbackResponse, GoalDescriptionRequest, AIPlanResponse, AIPlanWithCodeResponse
 from app.ai.goal_code_generator import GeneratedPlanWithCode, parser as code_parser, goal_code_chain 
 from app.db import get_db  
 from sqlalchemy.orm import Session
 from app.crud import crud, planner
+from app.models import PlanFeedbackAction
 
 router = APIRouter(
     prefix="/planning",
@@ -35,13 +36,13 @@ def generate_plan_from_ai(request: GoalDescriptionRequest, db: Session = Depends
         
         response = AIPlanResponse(plan=generated_plan, source="AI", ai_version="1.0")
 
-        saved_goal = planner.save_generated_plan(
+        saved_plan = planner.save_generated_plan(
             plan=generated_plan,
             db=db,
             user_id=request.user_id  # Pass the user ID
         )
         # Log the saved goal ID
-        print(f"Generated plan saved with goal ID: {saved_goal.id}")
+        print(f"Generated plan saved with goal ID: {saved_plan.id}")
 
         # Return the structured plan as JSON
         return response
@@ -87,8 +88,8 @@ def generate_plan_with_code(request: GoalDescriptionRequest):
         raise HTTPException(status_code=500, detail=str(e))
     
 
-@router.post("/plan-feedback")
-def plan_feedback(request: PlanFeedbackRequest, db: Session = Depends(get_db)):
+@router.post("/plan-feedback", response_model=PlanFeedbackResponse)
+def plan_feedback(request: PlanFeedbackRequest, db: Session = Depends(get_db)) -> PlanFeedbackResponse:
     """
     Submit feedback on a generated plan.
     """
@@ -97,7 +98,7 @@ def plan_feedback(request: PlanFeedbackRequest, db: Session = Depends(get_db)):
         # log the feedback for now.
         print(f"Feedback received: {request.model_dump()}")
         print(f"Feedback text: {request.feedback_text}")
-        print(f"Is approved: {request.is_approved}")
+        print(f"Feeback action : {request.plan_feedback_action}")
         print(f"Suggested changes: {request.suggested_changes}")
         print(f"User ID: {request.user_id}")
         print(f"Timestamp: {request.timestamp}")
@@ -106,13 +107,15 @@ def plan_feedback(request: PlanFeedbackRequest, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing feedback: {str(e)}")
     
-    if request.is_approved is None:
-        raise HTTPException(status_code=400, detail="is_approved must be provided")
+    if request.plan_feedback_action is None:
+        raise HTTPException(status_code=400, detail="feedback action must be provided")
 
     try:
         # Save the feedback to the database
         feedback = crud.create_feedback(db=db, feedback_data=request)
-        if request.is_approved:
+        print(f"Feedback saved with ID: {feedback.id}")
+
+        if request.plan_feedback_action == PlanFeedbackAction.APPROVE:
             print("Marking plan as approved.")
             plan = crud.get_plan_by_id(db, request.plan_id)
             if plan:
@@ -121,84 +124,76 @@ def plan_feedback(request: PlanFeedbackRequest, db: Session = Depends(get_db)):
                 db.refresh(plan)
                 print(f"Plan {plan.id} marked as approved.")
 
-                return {
-                    "message": "Plan approved and stored successfully",
-                    "feedback": feedback.model_dump(),
-                    "plan_id": plan.id,
-                    "is_approved": request.is_approved,
-                }
+                print("=" * 50)
+                print("DEBUG:", type(plan), plan.__dict__)
+                print("=" * 50)
+                # Return the response with the feedback and plan details
+
+                return PlanFeedbackResponse(
+                    message="Plan approved and stored successfully",
+                    feedback=feedback.feedback_text,
+                    previous_plan_id=plan.id,
+                    plan_feedback_action=request.plan_feedback_action,
+                    refined_plan_id=None,
+                    refined_plan=None,
+                    goal_id=plan.goal_id
+                )
             
             else:
                 raise HTTPException(status_code=404, detail="Plan not found for the provided ID {request.plan_id}")
+        elif request.plan_feedback_action == PlanFeedbackAction.REQUEST_REFINEMENT:
+            plan = crud.get_plan_by_id(db, request.plan_id)
+
+            if not plan:
+                raise HTTPException(status_code=404, detail=f"Plan not found for the provided ID {request.plan_id}")
+
+            print(f"Plan {plan.id} not approved, and marked for refinement. Feedback stored, feedback ID: {feedback.id}")
+            
+            # Generate a refined plan based on the feedback
+            refined_plan = planner.generate_refined_plan_from_feedback(plan_id=request.plan_id, db=db)
+            
+            print(f"Refined plan generated with ID: {refined_plan.plan.plan_id}. The refined plan was generated from the plan with ID: {request.plan_id}")
+            
+            # Save the refined plan to the database
+            saved_refined_plan = planner.save_generated_plan(
+                plan=refined_plan.plan,
+                db=db,
+                user_id=request.user_id  # Pass the user ID
+            )
+            print(f"Refined plan saved with ID: {saved_refined_plan.id}")
+
+            return PlanFeedbackResponse(
+                message="Refinement needed. Feedback stored successfully, previous plan not approved. Refined plan generated and saved.",
+                feedback=feedback.feedback_text,
+                previous_plan_id=request.plan_id,
+                plan_feedback_action=request.plan_feedback_action,
+                refined_plan_id=saved_refined_plan.id,
+                refined_plan=refined_plan.plan,
+                goal_id=plan.goal_id,
+            )
         else:
-            print("Plan not approved, no changes made to the plan. Only feedback stored.")
-            return {
-                "message": "Refinement needed. Feedback stored successfully, plan not approved.",
-                "feedback": feedback.model_dump(),
-                "is_approved": request.is_approved,
-            }
+            raise HTTPException(status_code=400, detail="Invalid feedback action provided")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error saving feedback: {str(e)}")
 
 # ------------------------------------------------
 
-@router.post("/refine-plan")
-def refine_plan(request: PlanRefinementRequest, db: Session = Depends(get_db)):
-    """
-    Refine a generated plan based on user feedback.
-    """
-    # 1. get the existing plan from the database
-    existing_plan = crud.get_plan_by_id(db, request.plan_id)
+if __name__ == "__main__":
+    from app.db import SessionLocal
+    from app.ai.schemas import PlanFeedbackRequest
+    from app.models import PlanFeedbackAction
 
-    if not existing_plan:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    
-    # 2. get the feedback if exists
-    feedback = crud.get_feedback_by_plan_id(db, request.plan_id)
+    db = SessionLocal()
 
-    if not feedback:
-        raise HTTPException(status_code=404, detail="Feedback not found for this plan")
-    
-    # 3. Build a feedback summary
-    feedback_instructions = ""
-    if feedback:
-        feedback_instructions += f"\n\nFeedback: {feedback.feedback_text}\n"
-        if feedback.suggested_changes:
-            feedback_instructions += f"Suggested changes: {feedback.suggested_changes}\n"
-        
-    if request.custom_feedback:
-        feedback_instructions += f"\nCustom feedback: {request.custom_feedback}\n"
+    request = PlanFeedbackRequest(
+        plan_id=1,
+        goal_id=1,
+        feedback_text="This is a test feedback",
+        plan_feedback_action=PlanFeedbackAction.APPROVE,
+        suggested_changes="No changes needed",
+        user_id=1
+    )
 
-
-    # If no feedback is provided, we can use the existing plan description
-    if not feedback_instructions:
-        feedback_instructions = existing_plan.goal.description or existing_plan.goal.title
-
-    feedback_instructions = feedback_instructions.strip()
-
-    # 4. Combine into prompt input
-    ai_input = {
-        "goal_description": existing_plan.goal.description or existing_plan.goal.title,
-        # "format_instructions": parser.get_format_instructions(),
-        "prior_feedback": feedback_instructions
-    }
-
-    # 5. Run the AI Chain: Invoke the goal parser chain with the feedback
-    try:
-        refined_plan: GeneratedPlan = refine_plan_chain.invoke(ai_input)["plan"]
-
-        # Validate the refined plan
-        if not refined_plan or not refined_plan.goal:
-            raise HTTPException(status_code=500, detail="Refined plan generation failed")
-        
-        if not isinstance(refined_plan, GeneratedPlan):
-            raise HTTPException(status_code=500, detail="Refined plan is not valid")
-
-        return AIPlanResponse(
-            plan=refined_plan,
-            source="AI-Refined",
-            ai_version="1.2"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error refining plan: {str(e)}")
+    response = plan_feedback(request=request, db=db)
+    print("Response:", response)

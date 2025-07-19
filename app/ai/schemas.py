@@ -3,6 +3,9 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import date, datetime, timezone
+from enum import Enum
+from app.models import PlanFeedbackAction  # Import the enum from models.py
+
 
 # ------------------------------------------
 # ✅ 1. Task: The smallest unit of execution — one single task (under an occurrence)
@@ -65,19 +68,30 @@ class GoalPlan(BaseModel):
 # ------------------------------------------------
 class GeneratedPlan(BaseModel):
     goal: GoalPlan = Field(..., description="The main goal being planned")
-
+    plan_id: Optional[int] = Field(None, description="Optional ID of the generated plan")
+    
 # ------------------------------------------------
 # ✅ 6. Plan feedback request schema. This is used to submit feedback on a generated plan.
 # ------------------------------------------------
 
 class PlanFeedbackRequest(BaseModel):
     plan_id: int = Field(..., description="ID of the generated plan to provide feedback on")
+    goal_id: int = Field(..., description="ID of the goal associated with this plan")
     feedback_text: str = Field(..., description="Feedback on the generated plan in natural language, e.g., 'too many tasks', 'missing details'")
-    is_approved: Optional[bool] = Field(..., description="Whether the plan is approved by the user or needs changes")
+    plan_feedback_action: PlanFeedbackAction = Field(..., description="Action to take on the plan feedback, e.g., approve or request refinement")
     suggested_changes: Optional[str] = Field(None, description="Optional suggested changes to improve the plan")
     # Optional fields for tracking feedback source and timestamp
-    user_id: Optional[int] = Field(None, description="Optional user ID for tracking feedback source")
+    user_id: int = Field(..., description="User ID for tracking feedback source")
     timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="Optional timestamp of when the feedback was given")
+
+class PlanFeedbackResponse(BaseModel):
+    message: str
+    feedback: str
+    previous_plan_id: int
+    plan_feedback_action: PlanFeedbackAction
+    refined_plan_id: Optional[int] = None
+    refined_plan: Optional[GeneratedPlan] = None
+    goal_id: Optional[int] = None
 
 # ------------------------------------------------
 
@@ -103,11 +117,10 @@ class AIPlanWithCodeResponse(GeneratedPlanWithCode):
     source: str = Field(default="AI", description="Source of the generated plan")   
     ai_version: str = Field(default="1.0", description="Version of the AI model used")
 
-
-
-class PlanRefinementRequest(BaseModel):
-    plan_id: int = Field(..., description="ID of the generated plan to refine")
-    custom_feedback: Optional[str] = Field(..., description="Custom feedback on how to improve the plan, e.g., 'Add more tasks', 'Change frequency'")
-    user_id: Optional[int] = Field(None, description="Optional user ID for tracking refinement source")
-    timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="Optional timestamp of when the refinement was requested")
+# ------------------------------------------------
+# class PlanRefinementRequest(BaseModel):
+#     plan_id: int = Field(..., description="ID of the generated plan to refine")
+#     custom_feedback: Optional[str] = Field(..., description="Custom feedback on how to improve the plan, e.g., 'Add more tasks', 'Change frequency'")
+#     user_id: Optional[int] = Field(None, description="Optional user ID for tracking refinement source")
+#     timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="Optional timestamp of when the refinement was requested")
 
