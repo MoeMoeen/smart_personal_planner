@@ -11,7 +11,7 @@ from app.ai.goal_code_generator import GeneratedPlanWithCode, parser as code_par
 from app.db import get_db  
 from sqlalchemy.orm import Session
 from app.crud import crud, planner
-from app.models import PlanFeedbackAction
+from app.models import PlanFeedbackAction, Feedback, Plan
 
 router = APIRouter(
     prefix="/planning",
@@ -112,42 +112,54 @@ def plan_feedback(request: PlanFeedbackRequest, db: Session = Depends(get_db)) -
 
     try:
         # Save the feedback to the database
-        feedback = crud.create_feedback(db=db, feedback_data=request)
-        print(f"Feedback saved with ID: {feedback.id}")
+        saved_feedback = crud.create_feedback(db=db, feedback_data=request)
+        print(f"Feedback for plan ID: {request.plan_id} saved with ID: {saved_feedback.id}")
 
         if request.plan_feedback_action == PlanFeedbackAction.APPROVE:
             print("Marking plan as approved.")
-            plan = crud.get_plan_by_id(db, request.plan_id)
-            if plan:
-                setattr(plan, "is_approved", True)  # Mark the plan as approved (ensure is_approved is a boolean field in your Plan model)
-                db.commit()
-                db.refresh(plan)
-                print(f"Plan {plan.id} marked as approved.")
+            plan_from_db = crud.get_plan_by_id(db, request.plan_id)
+            if plan_from_db:
+                with db.begin(): # Begin atomic transaction
+                    # # Enforce business rule: Only one approved plan per goal at any time. Unapprove other approved plans for the same goal.
+                    other_approved_plans = db.query(Plan).filter(
+                        Plan.goal_id == plan_from_db.goal_id,
+                        Plan.is_approved == True,
+                        Plan.id != plan_from_db.id  # Exclude the current plan
+                    ).all()
 
-                print("=" * 50)
-                print("DEBUG:", type(plan), plan.__dict__)
-                print("=" * 50)
+                    for other_plan in other_approved_plans:
+                        setattr(other_plan, "is_approved", False)  # Mark as unapproved
+                    
+                    print(f"Unapproved plan(s) {other_plan.id} for goal(s) {plan_from_db.goal_id}")
+                    
+                    setattr(plan_from_db, "is_approved", True)  # Mark the current plan as approved 
+
+                # db.commit()
+                db.refresh(plan_from_db)
+                print(f"Plan {plan_from_db.id} marked as approved.")
+                
                 # Return the response with the feedback and plan details
 
                 return PlanFeedbackResponse(
                     message="Plan approved and stored successfully",
-                    feedback=feedback.feedback_text,
-                    previous_plan_id=plan.id,
+                    feedback=saved_feedback.feedback_text, 
+                    plan_id=plan_from_db.id, 
                     plan_feedback_action=request.plan_feedback_action,
                     refined_plan_id=None,
                     refined_plan=None,
-                    goal_id=plan.goal_id
+                    goal_id=plan_from_db.goal_id
                 )
             
             else:
                 raise HTTPException(status_code=404, detail="Plan not found for the provided ID {request.plan_id}")
+        
         elif request.plan_feedback_action == PlanFeedbackAction.REQUEST_REFINEMENT:
-            plan = crud.get_plan_by_id(db, request.plan_id)
+            plan_from_db = crud.get_plan_by_id(db, request.plan_id)
 
-            if not plan:
+            if not plan_from_db:
                 raise HTTPException(status_code=404, detail=f"Plan not found for the provided ID {request.plan_id}")
 
-            print(f"Plan {plan.id} not approved, and marked for refinement. Feedback stored, feedback ID: {feedback.id}")
+            print(f"Plan {plan_from_db.id} not approved, and marked for refinement. Feedback stored, feedback ID: {saved_feedback.id}")
             
             # Generate a refined plan based on the feedback
             refined_plan = planner.generate_refined_plan_from_feedback(plan_id=request.plan_id, db=db)
@@ -158,18 +170,20 @@ def plan_feedback(request: PlanFeedbackRequest, db: Session = Depends(get_db)) -
             saved_refined_plan = planner.save_generated_plan(
                 plan=refined_plan.plan,
                 db=db,
-                user_id=request.user_id  # Pass the user ID
+                user_id=request.user_id,  # Pass the user ID
+                refined_from_plan_id=request.plan_id  # Link to the source plan this refined plan is based on
             )
             print(f"Refined plan saved with ID: {saved_refined_plan.id}")
+            
 
             return PlanFeedbackResponse(
                 message="Refinement needed. Feedback stored successfully, previous plan not approved. Refined plan generated and saved.",
-                feedback=feedback.feedback_text,
-                previous_plan_id=request.plan_id,
+                feedback=saved_feedback.feedback_text,
+                plan_id=request.plan_id,
                 plan_feedback_action=request.plan_feedback_action,
                 refined_plan_id=saved_refined_plan.id,
                 refined_plan=refined_plan.plan,
-                goal_id=plan.goal_id,
+                goal_id=plan_from_db.goal_id,
             )
         else:
             raise HTTPException(status_code=400, detail="Invalid feedback action provided")
@@ -187,12 +201,12 @@ if __name__ == "__main__":
     db = SessionLocal()
 
     request = PlanFeedbackRequest(
-        plan_id=1,
-        goal_id=1,
+        plan_id=2,
+        goal_id=5,
         feedback_text="This is a test feedback",
         plan_feedback_action=PlanFeedbackAction.APPROVE,
         suggested_changes="No changes needed",
-        user_id=1
+        user_id=2
     )
 
     response = plan_feedback(request=request, db=db)

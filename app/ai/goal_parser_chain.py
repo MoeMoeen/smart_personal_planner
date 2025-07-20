@@ -86,6 +86,12 @@ refinement_prompt_template = ChatPromptTemplate.from_messages([
 
     Use this feedback to revise and improve the original structured plan.
 
+    Here is the last generated plan that needs refinement:
+
+    {previous_plan}
+
+    Please use the feedback and improve the previous plan. Ensure that the new plan addresses the concerns and avoids repeating previous mistakes.
+
     Requirements:
     - Your output must strictly follow the structured plan schema.
     - ONLY return a valid JSON object.

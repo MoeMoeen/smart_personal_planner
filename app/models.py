@@ -315,6 +315,13 @@ class Plan(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # New Metadata fields 
+    refinement_round = Column(Integer, default=0, nullable=True)  # Track refinement rounds. 0 for initial AI-generated plan
+    refined_from_plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)  # Link to the original/source plan if this is a refined version
+
+    # Relationship to the original plan if this is a refined version
+    refined_from = relationship("Plan", remote_side=[id], back_populates="refined_plans", uselist=False)
+
     def __repr__(self):
         return f"<Plan(id={self.id}, goal_id={self.goal_id}, is_approved={self.is_approved}, user_id={self.user_id})>"
 
