@@ -70,7 +70,7 @@ class GeneratedPlan(BaseModel):
     goal: GoalPlan = Field(..., description="The main goal being planned")
     plan_id: Optional[int] = Field(None, description="Optional ID of the generated plan")
     refinement_round: Optional[int] = Field(None, description="Optional refinement round number")
-    refined_from_plan_id: Optional[int] = Field(None, description="Optional ID of the plan this is refined from")
+    source_plan_id: Optional[int] = Field(None, description="Optional ID of the plan this is refined from")
     
 # ------------------------------------------------
 # ✅ 6. Plan feedback request schema. This is used to submit feedback on a generated plan.

@@ -1,5 +1,5 @@
-from sqlalchemy.orm import Session
-from app.models import HabitGoal, ProjectGoal, HabitCycle, GoalOccurrence
+from sqlalchemy.orm import Session, selectinload
+from app.models import HabitGoal, ProjectGoal, HabitCycle, GoalOccurrence, Goal
 from app.models import Task, Plan
 from app.ai.schemas import GeneratedPlan, AIPlanResponse
 
@@ -12,7 +12,7 @@ from app.models import GoalType
 from typing import Optional
 
 
-def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, refined_from_plan_id : Optional[int] = None) -> Plan:
+def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_plan_id : Optional[int] = None) -> Plan:
     """
     Save the AI-generated plan into the database.
     Dynamically chooses the goal model (HabitGoal or ProjectGoal) based on goal_type.
@@ -117,9 +117,9 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, refined_
 
     # Determine refinement round
     refinement_round = 0
-    if refined_from_plan_id:
+    if source_plan_id:
         # If this is a refined plan, increment the round
-        source_plan = db.query(Plan).filter(Plan.id == refined_from_plan_id).first()
+        source_plan = db.query(Plan).filter(Plan.id == source_plan_id).first()
         if source_plan:
             refinement_round = (source_plan.refinement_round or 0) + 1
 
@@ -129,7 +129,7 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, refined_
         user_id=user_id,  # Set the user ID for tracking ownership
         is_approved=False,  # Initial state
         refinement_round=refinement_round,  # Set refinement round
-        refined_from_plan_id=refined_from_plan_id  # Link to the source plan if this is a refined version
+        source_plan_id=source_plan_id  # Link to the source plan if this is a refined version
     )
     db.add(db_plan)
     db.commit()  # Commit the plan as well
@@ -140,107 +140,128 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, refined_
 
 # ------------------------------------------------
 
-def generate_refined_plan_from_feedback(plan_id: int, db: Session) -> AIPlanResponse:
-    """
-    Re-run the LangChain plan parser with accumulated feedback for a given plan.
-    Returns a new GeneratedPlan object.
-    """
-    # Get the plan
-    plan = db.query(Plan).filter(Plan.id == plan_id).first()
-    if not plan:
-        raise ValueError("Plan not found")
-
-    # Get the goal
-    goal_id = plan.goal_id
-    goal = plan.goal
-    if not goal:
-        raise ValueError("Goal not found for the given plan")
-    
-    # Get all feedbacks linked to this goal (across all related plans)
-    all_feedback = (
-        db.query(Feedback)
-        .filter(Feedback.plan.has(goal_id=goal_id))
-        .order_by(Feedback.created_at)
-        .all()
-    )
-
-    # Accumulate all feedbacks
-    accumulated_feedback_instructions = ""
-    for f in all_feedback:
-        accumulated_feedback_instructions += "\n- " + f.feedback_text
-        if getattr(f, "suggested_changes", None):
-            accumulated_feedback_instructions += f" (Suggested: {f.suggested_changes})"
-
-
-    # === Format previous plan content === 
-    # # Format tasks
-
-    formatted_tasks = "\n".join(
-        f"- {task.title} (Due: {task.due_date}, Completed: {task.completed})" for task in plan.tasks) or "No tasks yet."
-    
-    # Add reccurrence cycles if applicable, i.e., if the goal is a habit
-    formatted_cycles = ""
-    reccurrence_info = ""
-    if goal.goal_type == GoalType.habit:
-        habit : HabitGoal = goal
-        reccurrence_info = f"""
-            Reccurrence Cycle: {habit.goal_frequency_per_cycle} times per {habit.recurrence_cycle},
-            Total Cycles: {habit.goal_recurrence_count or 'Open-ended'}
-            Default Estimated Time per Cycle: {habit.default_estimated_time_per_cycle or 'Not specified'}""".strip()
-
-        # Format cycles if they exist
-        if hasattr(goal, 'cycles') and goal.cycles:
-            formatted_cycles = "\n".join(
-                f"Cycle {cycle.cycle_label}: {cycle.start_date} to {cycle.end_date} (Progress: {cycle.progress})"
-                for cycle in plan.goal.cycles) or "No cycles yet."  
-
-    else:
-        reccurrence_info = "This is a project goal, no recurrence cycles."
-        
-    # Assemble and Format the previous plan section
-    previous_plan_content = f"""
-    --- Previous Plan (Structured) ---
-    Goal Title: {goal.title} ({goal.goal_type.capitalize()})
-    Goal Description: {goal.description or 'No description provided.'}
-    Start Date: {goal.start_date or 'Not specified'}
-    End Date: {goal.end_date or 'Not specified'}  
-
-    Reccurrence Information: {reccurrence_info if reccurrence_info else 'No recurrence information.'}
-
-    Tasks:
-    {formatted_tasks}
-
-    Cycles:
-    {formatted_cycles if formatted_cycles else 'No cycles available.'}
-
-    --- End of Previous Plan ---
-    """.strip()
-
-    # Prepare the refinement prompt input
-    
-    refinement_prompt_input = {
-        "goal_description": plan.goal.description or plan.goal.title,
-        "prior_feedback": accumulated_feedback_instructions.strip(),
-        "previous_plan": previous_plan_content,
-    }
-
-    # Call the refinement AI chain: Invoke the goal parser chain with the accumulated feedback
+def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text: str, suggested_changes: str):
+    """Generate a refined plan based on user feedback using LangChain."""
     try:
-        refined_plan = refine_plan_chain.invoke(refinement_prompt_input)["plan"]
-
-        # Validate the refined plan
-        if not refined_plan or not refined_plan.goal:
-            raise HTTPException(status_code=500, detail="Refined plan generation failed")
+        print(f"Starting refinement for plan {plan_id}")
         
-        if not isinstance(refined_plan, GeneratedPlan):
-            raise HTTPException(status_code=500, detail="Refined plan is not valid")
+        # Load the plan with proper relationships and handle polymorphic loading
+        plan = db.query(Plan).options(
+            selectinload(Plan.goal),
+            selectinload(Plan.tasks),
+            selectinload(Plan.cycles).selectinload(HabitCycle.occurrences).selectinload(GoalOccurrence.tasks)
+        ).filter(Plan.id == plan_id).first()
+        
+        if not plan:
+            raise ValueError(f"Plan with ID {plan_id} not found")
+        
+        print(f"Plan loaded: {plan}")
+        
+        # Load the goal with explicit type handling for polymorphic inheritance
+        goal = plan.goal
+        if not goal:
+            raise ValueError(f"Goal not found for plan {plan_id}")
+            
+        print(f"Goal loaded: {goal}")
+        print(f"Goal type: {type(goal)}")
+        
+        # Format existing tasks
+        formatted_tasks = []
+        for task in plan.tasks:
+            formatted_tasks.append(f"- {task.title} (Due: {task.due_date or 'No due date'})")
+        formatted_tasks = "\n".join(formatted_tasks) if formatted_tasks else "No tasks available."
+    
+        # Safely get end_date depending on goal type
+        end_date = "Not specified"
+        goal_end_date = getattr(goal, 'end_date', None)
+        if goal_end_date:
+            end_date = str(goal_end_date)
+        
+        # Add recurrence cycles if applicable, i.e., if the goal is a habit
+        formatted_cycles = ""
+        recurrence_info = ""
+        if str(goal.goal_type) == "habit":
+            # Cast to HabitGoal to access habit-specific attributes
+            habit_goal = db.query(HabitGoal).filter(HabitGoal.id == goal.id).first()
+            if habit_goal:
+                recurrence_info = f"Frequency: {habit_goal.goal_frequency_per_cycle or 'Not specified'}"
 
-        return AIPlanResponse(
-            plan=refined_plan,
-            source="AI-Refined",
-            ai_version="1.2"
-        )
+                # Get cycles for this plan
+                cycles = plan.cycles or []
+                if cycles:
+                    formatted_cycles = "\n".join([
+                        f"Cycle {cycle.cycle_label}: {cycle.start_date} to {cycle.end_date} (Progress: {cycle.progress})"
+                        for cycle in cycles
+                    ])
+                else:
+                    formatted_cycles = "No cycles defined."
+            else:
+                recurrence_info = "Habit goal details not found."
+        else:
+            recurrence_info = "Not applicable (Project Goal)"
+            
+        # Assemble and Format the previous plan section
+        previous_plan_content = f"""
+        --- Previous Plan (Structured) ---
+        Goal Title: {goal.title} ({goal.goal_type.capitalize()})
+        Goal Description: {goal.description or 'No description provided.'}
+        Start Date: {goal.start_date or 'Not specified'}
+        End Date: {getattr(goal, 'end_date', None) or 'Not specified'}  
+
+        Recurrence Information: {recurrence_info if recurrence_info else 'No recurrence information.'}
+
+        Tasks:
+        {formatted_tasks}
+
+        Cycles:
+        {formatted_cycles if formatted_cycles else 'No cycles available.'}
+
+        --- End of Previous Plan ---
+        """.strip()
+
+        # Prepare the refinement prompt input
+        
+        print(f"About to call refine_plan_chain with feedback: {feedback_text}")
+        print(f"Suggested changes: {suggested_changes}")
+        
+        # Call the LangChain refinement chain
+        result = refine_plan_chain.invoke({
+            "goal_description": goal.description or goal.title,
+            "previous_plan": previous_plan_content,
+            "prior_feedback": f"Feedback: {feedback_text}\nSuggested Changes: {suggested_changes or 'No specific changes suggested.'}"
+        })
+        
+        print(f"Plan user_id: {plan.user_id}, type: {type(plan.user_id)}")
+        print(f"Plan id: {plan.id}, type: {type(plan.id)}")
+        
+        # Parse the refined plan and save it
+        # The result is a dict with a 'plan' key containing the GeneratedPlan
+        if result and isinstance(result, dict) and 'plan' in result:
+            refined_plan_data = result['plan']
+            print(f"Refined plan data: {refined_plan_data}")
+            print(f"Refined plan data type: {type(refined_plan_data)}")
+            
+            # Save the refined plan with source plan reference
+            # Temporarily use original call to test functionality
+            from typing import cast
+            user_id_val = cast(int, plan.user_id)  
+            plan_id_val = cast(int, plan.id)
+            
+            refined_plan = save_generated_plan(
+                plan=refined_plan_data,
+                db=db,
+                user_id=user_id_val,
+                source_plan_id=plan_id_val
+            )
+            
+            print(f"Refined plan saved with ID: {refined_plan.id}")
+            # Return both the saved plan and the original GeneratedPlan
+            return {"saved_plan": refined_plan, "generated_plan": refined_plan_data}
+        else:
+            print(f"Unexpected result structure. Result: {result}")
+            print(f"Result keys: {result.keys() if isinstance(result, dict) else 'Not a dict'}")
+            raise ValueError("Failed to generate refined plan from LangChain")
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error refining plan: {str(e)}")
-
-# ------------------------------------------------
+        print(f"Error in generate_refined_plan_from_feedback: {e}")
+        raise e

@@ -63,7 +63,22 @@ class Goal(Base):
     }
 
     def __repr__(self):
-        return f"<Goal(id={self.id}, title={self.title}, start_date={self.start_date}, goal_type={self.goal_type})>"
+        try:
+            title = self.title
+        except (KeyError, AttributeError):
+            title = 'N/A'
+            
+        try:
+            start_date = self.start_date
+        except (KeyError, AttributeError):
+            start_date = 'N/A'
+            
+        try:
+            goal_type = self.goal_type
+        except (KeyError, AttributeError):
+            goal_type = 'N/A'
+            
+        return f"<Goal(id={self.id}, title={title}, start_date={start_date}, goal_type={goal_type})>"
 
 # === PROJECT GOAL (SUBCLASS) ===
 
@@ -83,7 +98,22 @@ class ProjectGoal(Goal):
     }
 
     def __repr__(self):
-        return f"<ProjectGoal(id={self.id}, title={self.title}, start_date={self.start_date}, end_date={self.end_date})>"
+        try:
+            end_date = self.end_date
+        except (KeyError, AttributeError):
+            end_date = 'N/A'
+        
+        try:
+            title = self.title
+        except (KeyError, AttributeError):
+            title = 'N/A'
+            
+        try:
+            start_date = self.start_date
+        except (KeyError, AttributeError):
+            start_date = 'N/A'
+            
+        return f"<ProjectGoal(id={self.id}, title={title}, start_date={start_date}, end_date={end_date})>"
 
 # === HABIT GOAL (SUBCLASS) ===
 # Note: Habit goals are recurring and can have multiple cycles
@@ -120,7 +150,22 @@ class HabitGoal(Goal):
     }
 
     def __repr__(self):
-        return f"<HabitGoal(id={self.id}, title={self.title}, start_date={self.start_date}, recurrence_cycle={self.recurrence_cycle})>"
+        try:
+            title = self.title
+        except (KeyError, AttributeError):
+            title = 'N/A'
+            
+        try:
+            start_date = self.start_date
+        except (KeyError, AttributeError):
+            start_date = 'N/A'
+            
+        try:
+            recurrence_cycle = self.recurrence_cycle
+        except (KeyError, AttributeError):
+            recurrence_cycle = 'N/A'
+            
+        return f"<HabitGoal(id={self.id}, title={title}, start_date={start_date}, recurrence_cycle={recurrence_cycle})>"
 
     
 # === HABIT CYCLE ===
@@ -317,10 +362,13 @@ class Plan(Base):
 
     # New Metadata fields 
     refinement_round = Column(Integer, default=0, nullable=True)  # Track refinement rounds. 0 for initial AI-generated plan
-    refined_from_plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)  # Link to the original/source plan if this is a refined version
+    source_plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)  # Link to the original/source plan if this is a refined version
 
-    # Relationship to the original plan if this is a refined version
-    refined_from = relationship("Plan", remote_side=[id], back_populates="refined_plans", uselist=False)
+    # Relationship to the source plan if this is a refined version
+    source_plan = relationship("Plan", remote_side=[id], back_populates="refined_plans", uselist=False)
+
+    # Relationship to refined plans (if this is a refined version)
+    refined_plans = relationship("Plan", back_populates="source_plan", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Plan(id={self.id}, goal_id={self.goal_id}, is_approved={self.is_approved}, user_id={self.user_id})>"
