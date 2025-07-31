@@ -11,6 +11,8 @@ import os                                                   # ✅ For environmen
 from pydantic import SecretStr
 from decouple import config
 from langchain.schema.runnable import RunnableMap
+from datetime import date
+from datetime import datetime, timezone  # For handling timestamps in feedback
 
 
 #Create a reusable LangChain pipeline that:
@@ -37,72 +39,96 @@ parser = OutputFixingParser(
 
 # ✅ Define the prompt template with placeholders for dynamic content, i.e, for the LLM (system + user)
 # ✅ Create the system prompt that guides the LLM
+
+today = date.today().isoformat()
+
 prompt_template = ChatPromptTemplate.from_messages([
-    ("system", "You are a smart AI personal planner."),
+    ("system", 
+     f"""
+     You are a smart AI personal planner. Today’s date is {today}. 
+     Use this as the base for all scheduling decisions.
+     """
+    ),
     ("user",
      """
-    A user will describe a personal goal in natural language. 
-    Given the user's natural language description of a goal, generate a structured goal planning breakdown.
+     A user will describe a personal goal in natural language. 
+     Given the user's natural language description of a goal, generate a structured goal planning breakdown.
 
-    Your response MUST:
-    - Follow the JSON structure defined by this format:
-    {format_instructions}
+     Your response MUST:
+     - Follow the JSON structure defined by this format:
+     {format_instructions}
 
-    The plan must include:
-    - Top-level goal details (title, type, start date, recurrence info, etc.)
-    - Habit cycles if the goal is recurring (e.g. monthly)
-    - Inside each cycle, define N goal occurrences based on goal_frequency_per_cycle
-    - Inside each occurrence, generate 2–4 detailed tasks:
-        - Include the main action (e.g. "Play football")
-        - Include at least 1 preparation or support task (e.g. commute, packing)
-        - Use realistic estimated_time and due_date fields
+     The plan must include:
+     - Top-level goal details (title, type, start date, recurrence info, etc.)
+     - Habit cycles if the goal is recurring (e.g. monthly)
+     - Inside each cycle, define N goal occurrences based on goal_frequency_per_cycle
+     - Inside each occurrence, generate 2–4 detailed tasks:
+         - Include the main action (e.g. "Play football")
+         - Include at least 1 preparation or support task (e.g. commute, packing)
+         - Use realistic estimated_time and due_date fields
 
-    Do NOT include motivational or extra explanation text. Only return structured data.
+     ⚠️ Temporal Logic Requirements:
+     - All dates must be in the future — never in the past.
+     - For project goals, include an end_date that is at least 2 weeks after the start_date.
+     - For habit goals, end_date can be omitted if recurrence is indefinite.
+     - Start_date must not be earlier than today.
+     - Make date logic consistent with the goal type and frequency.
 
-    User goal: {goal_description}
-    """
+     Do NOT include motivational or extra explanation text. Only return valid structured data.
+
+     User goal: {goal_description}
+
+     Today's date: {today_date}
+     """
     )
 ])
 
 # app/ai/refinement_prompt.py (or you can inline it in goal_parser_chain.py if preferred)
 
-
 refinement_prompt_template = ChatPromptTemplate.from_messages([
     ("system", 
-     "You are a smart AI personal planner who improves goal planning based on user feedback."),
+     f"""
+     You are a smart AI personal planner who revises structured goal plans based on user feedback.
+     Today’s date is {today}. Make sure all output respects today’s date.
+     """
+    ),
     ("user",
      """
-    The user previously generated a structured goal plan, but they provided feedback that it needs refinement.
+     A user previously generated a structured goal plan, but they provided feedback asking for improvements.
 
-    Your task is to take the existing plan and the user's feedback, and generate a new, improved structured plan. 
-    
-    Here is the user's original goal description:
+     Your task:
+     - Review the original goal description
+     - Consider the user's feedback
+     - Improve the previously generated plan accordingly
 
-    {goal_description}
+     Strictly follow these output rules:
+     - All dates must be in the future (not before today)
+     - For project goals:
+         - Start date must be today or later
+         - End date must be at least 2 weeks after start date
+     - For habit goals:
+         - End date is optional (may be recurring forever)
+     - Inside each cycle or plan:
+         - Add 2–4 detailed tasks per occurrence
+         - Include one main task and one supporting/preparation task
+         - Provide realistic due dates and estimated times
 
-    Below is the feedback and suggestions provided by the user:
+     You MUST follow this output format:
+     {format_instructions}
 
-    {prior_feedback}
+     Original goal description:
+     {goal_description}
 
-    Use this feedback to revise and improve the original structured plan.
+     User feedback:
+     {prior_feedback}
 
-    Here is the last generated plan that needs refinement:
+     Previous structured plan to refine:
+     {previous_plan}
 
-    {previous_plan}
-
-    Please use the feedback and improve the previous plan. Ensure that the new plan addresses the concerns and avoids repeating previous mistakes.
-
-    Requirements:
-    - Your output must strictly follow the structured plan schema.
-    - ONLY return a valid JSON object.
-    - Do NOT include any explanation or commentary.
-
-    Your response MUST:
-    - Follow the JSON structure defined by this format:
-    {format_instructions}
-
-        """)
-    ])
+     Return only a valid structured plan. Do not include extra explanation or chat text.
+     """
+    )
+])
 
 
 # ✅ Bind the format instructions

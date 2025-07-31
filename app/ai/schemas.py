@@ -1,3 +1,4 @@
+# app/ai/schemas.py
 # --- Pydantic is Python's data validation library used for schemas ---
 
 from pydantic import BaseModel, Field
@@ -107,6 +108,7 @@ class AIPlanResponse(BaseModel):
     plan: GeneratedPlan = Field(..., description="AI-generated structured plan")
     source: str = Field(default="AI", description="Source of the generated plan")   
     ai_version: str = Field(default="1.0", description="Version of the AI model used")
+    user_id: int = Field(..., description="ID of the user who owns this plan")
 
 # ✅ Output schema for plan with code snippet
 # 👇 This is what we expose as FastAPI response

@@ -24,3 +24,13 @@ An AI-powered personal goal planner that helps you:
 - Add smart logging from comments to auto-update later project todos or project roadmap
 - Once plan is approved, we'll use the ai-generated code to automatically save it to the db.
 
+
+
+---------------
+Issues:
+
+1. why goal --> plan not plans? in models. it's a one to many relationship, so each goal has many plans, not a single plan.
+2. ask chatgpt: i want the main ui/ux be conversational as if our planner has an assistant/chatbot that talks with the user and the assistant calls various functions to manipulate the db and give back responses to the user and also manipulate the ui ultimately.
+3. source plan id is not working properly, also refinement round.
+
+

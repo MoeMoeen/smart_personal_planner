@@ -1,3 +1,5 @@
+# app/crud/planner.py
+
 from sqlalchemy.orm import Session, selectinload
 from app.models import HabitGoal, ProjectGoal, HabitCycle, GoalOccurrence, Goal
 from app.models import Task, Plan
@@ -10,6 +12,7 @@ from app.ai.goal_parser_chain import refine_plan_chain
 from fastapi import HTTPException
 from app.models import GoalType
 from typing import Optional
+from datetime import date
 
 
 def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_plan_id : Optional[int] = None) -> Plan:
@@ -84,6 +87,8 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
             db_goal.cycles.append(db_cycle)
 
     else:  # project
+        if not goal_data.end_date:
+            raise ValueError("End date is required for project goals, but none was provided.")
         db_goal = ProjectGoal(
             title=goal_data.title,
             description=goal_data.description,
@@ -224,11 +229,47 @@ def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text
         print(f"About to call refine_plan_chain with feedback: {feedback_text}")
         print(f"Suggested changes: {suggested_changes}")
         
-        # Call the LangChain refinement chain
+        # # Call the LangChain refinement chain
+        # result = refine_plan_chain.invoke({
+        #     "goal_description": goal.description or goal.title,
+        #     "previous_plan": previous_plan_content,
+        #     "prior_feedback": f"Feedback: {feedback_text}\nSuggested Changes: {suggested_changes or 'No specific changes suggested.'}"
+        # })
+
+        
+        # ✅ 1. Fetch all previous feedback for this goal
+        all_feedbacks = (
+            db.query(Feedback)
+            .filter(Feedback.goal_id == goal.id)
+            .order_by(Feedback.timestamp.asc())
+            .all()
+        )
+
+        # ✅ 2. Format each previous feedback entry
+        prior_feedback_texts = [
+            f"[{fb.timestamp.strftime('%Y-%m-%d %H:%M')}] {fb.feedback_text}"
+            + (f" — Suggested: {fb.suggested_changes}" if fb.suggested_changes is not None else "")
+            for fb in all_feedbacks
+        ]
+
+        # ✅ 3. Add the latest feedback from the current request
+        prior_feedback_texts.append(
+            f"[{date.today().strftime('%Y-%m-%d')} NEW] {feedback_text}"
+            + (f" — Suggested: {suggested_changes}" if suggested_changes else "")
+        )
+
+        # ✅ 4. Join all into a single block
+        prior_feedback_combined = "\n".join(prior_feedback_texts)
+
+        print("------ [DEBUG] Prior Feedback Combined ------")
+        print(prior_feedback_combined)
+        print("------ [DEBUG] End of Prior Feedback Combined ------")
+
+        # ✅ 5. Call LangChain refinement chain with the combined feedback
         result = refine_plan_chain.invoke({
             "goal_description": goal.description or goal.title,
             "previous_plan": previous_plan_content,
-            "prior_feedback": f"Feedback: {feedback_text}\nSuggested Changes: {suggested_changes or 'No specific changes suggested.'}"
+            "prior_feedback": prior_feedback_combined
         })
         
         print(f"Plan user_id: {plan.user_id}, type: {type(plan.user_id)}")

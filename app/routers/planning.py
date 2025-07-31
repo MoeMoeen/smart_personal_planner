@@ -1,3 +1,4 @@
+# app/routers/planning.py
 # Create a route that:
 # Accepts a natural language goal_description from the frontend or API consumer
 # Invokes your goal_parser_chain
@@ -12,6 +13,7 @@ from app.db import get_db
 from sqlalchemy.orm import Session
 from app.crud import crud, planner
 from app.models import PlanFeedbackAction, Feedback, Plan
+from datetime import date
 
 router = APIRouter(
     prefix="/planning",
@@ -27,14 +29,15 @@ def generate_plan_from_ai(request: GoalDescriptionRequest, db: Session = Depends
     """
     try:
         # Run the LangChain pipeline with the user's goal description
-        generated_plan : GeneratedPlan = goal_parser_chain.invoke(
-            {
-                "goal_description": request.goal_description,
-                "format_instructions": parser.get_format_instructions()
-            }    
-        )["plan"]
-        
-        response = AIPlanResponse(plan=generated_plan, source="AI", ai_version="1.0")
+        today = date.today().isoformat()
+
+        generated_plan : GeneratedPlan = goal_parser_chain.invoke({
+            "goal_description": request.goal_description,
+            "format_instructions": parser.get_format_instructions(),
+            "today_date": today
+        })["plan"]
+
+        response = AIPlanResponse(plan=generated_plan, source="AI", ai_version="1.0", user_id=request.user_id)
 
         saved_plan = planner.save_generated_plan(
             plan=generated_plan,
