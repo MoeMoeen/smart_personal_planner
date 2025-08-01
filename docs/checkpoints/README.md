@@ -34,3 +34,14 @@ Issues:
 3. source plan id is not working properly, also refinement round.
 
 
+Updated Project Structure
+
+app/
+├── agent/
+│   ├── tools.py       ← Tool functions wrapper (e.g., save_plan, refine)
+│   ├── graph.py       ← LangGraph logic
+├── crud/
+│   ├── planner.py     ← Real function logic lives here
+├── routers/
+│   ├── telegram.py    ← Telegram webhook logic (if needed)
+│   ├── planning.py    ← Existing planning endpoints
