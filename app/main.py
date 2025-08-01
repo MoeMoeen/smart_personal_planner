@@ -1,6 +1,11 @@
 from fastapi import FastAPI
 from app.routers import goals, cycles, occurrences, planning
+import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+)
 
 # Step 1: Create the FastAPI app
 app = FastAPI()

@@ -1,3 +1,5 @@
+# app/crud/crud.py
+
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app import models, schemas
@@ -165,7 +167,18 @@ def create_plan(db: Session, plan_data: schemas.PlanCreate) -> models.Plan:
 def get_plan_by_id(db: Session, plan_id: int) -> Optional[models.Plan]:
     return db.query(models.Plan).filter(models.Plan.id == plan_id).first()
 
+# List Plans by User ID
+def get_plans_by_user(db: Session, user_id: int) -> List[models.Plan]:
+    return db.query(models.Plan).filter(models.Plan.user_id == user_id).order_by(models.Plan.created_at.desc()).all()
 
+# Get approved plans by User ID
+def get_approved_plans_by_user(db: Session, user_id: int) -> List[models.Plan]:
+    return db.query(models.Plan).filter(
+        models.Plan.user_id == user_id,
+        models.Plan.is_approved
+    ).order_by(models.Plan.created_at.desc()).all()
+
+# === FEEDBACK CRUD OPERATIONS ===
 # Get Feedback by Plan ID
 def get_feedback_by_plan_id(db: Session, plan_id: int) -> Optional[models.Feedback]:
     return db.query(models.Feedback).filter(models.Feedback.plan_id == plan_id).first()

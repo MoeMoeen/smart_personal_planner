@@ -50,7 +50,7 @@ class Goal(Base):
     user = relationship("User", back_populates="goals")
 
     # Relationship to plans
-    plan = relationship("Plan", back_populates="goal", uselist=True, cascade="all, delete-orphan")
+    plans = relationship("Plan", back_populates="goal", uselist=True, cascade="all, delete-orphan")
 
     # Relationship to feedback
     feedback = relationship("Feedback", back_populates="goal", cascade="all, delete-orphan")
@@ -336,7 +336,7 @@ class Plan(Base):
     is_approved = Column(Boolean, default=False, nullable=False)
 
     # Relationship to the main goal
-    goal = relationship("Goal", back_populates="plan")
+    goal = relationship("Goal", back_populates="plans")
 
     # Foreign key to link to the user who owns this plan
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
