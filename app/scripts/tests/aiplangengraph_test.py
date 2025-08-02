@@ -19,7 +19,7 @@ def trace_graph_execution():
     print("-" * 40)
     
     try:
-        final_state = run_graph_with_message(test_input, user_id=123)  # Test with specific user ID
+        final_state = run_graph_with_message(test_input, user_id=1)  # Use existing user ID
         
         print("\n" + "="*60)
         print("✅ EXECUTION COMPLETE")

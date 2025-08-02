@@ -25,18 +25,28 @@ from datetime import datetime, timezone  # For handling timestamps in feedback
 # ✅ Create an output parser that forces LLM to return `GeneratedPlan` schema
 base_parser = PydanticOutputParser(pydantic_object=GeneratedPlan)
 
-openai_api_key_str = str(config("OPENAI_API_KEY"))
-llm_for_fixing = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-4"),
-    temperature=0.2,
-    api_key=SecretStr(openai_api_key_str)
-)
+# ✅ Use the base parser directly instead of OutputFixingParser to avoid the chain issue
+parser = base_parser
 
-parser = OutputFixingParser(
-    parser=base_parser,
-    retry_chain=llm_for_fixing,
-    # This will ensure the LLM outputs valid JSON that matches the GeneratedPlanWithCode schema
-)
+# ✅ If you want auto-fixing later, use this configuration:
+# openai_api_key_str = str(config("OPENAI_API_KEY"))
+# llm_for_fixing = ChatOpenAI(
+#     model=os.getenv("OPENAI_MODEL", "gpt-4"),
+#     temperature=0.2,
+#     api_key=SecretStr(openai_api_key_str)
+# )
+# 
+# # Create a simple fixing chain
+# from langchain.prompts import ChatPromptTemplate
+# fixing_prompt = ChatPromptTemplate.from_template(
+#     "Fix the following JSON to be valid:\n{completion}\n\nFixed JSON:"
+# )
+# retry_chain = fixing_prompt | llm_for_fixing
+# 
+# parser = OutputFixingParser(
+#     parser=base_parser,
+#     retry_chain=retry_chain
+# )
 
 # ✅ Define the prompt template with placeholders for dynamic content, i.e, for the LLM (system + user)
 # ✅ Create the system prompt that guides the LLM
