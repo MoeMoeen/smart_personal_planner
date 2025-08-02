@@ -34,3 +34,18 @@ These scripts were used to systematically test and debug the plan feedback endpo
 - All scripts assume the FastAPI server is running on `http://localhost:8001`
 - Scripts use the virtual environment and require proper database setup
 - Some scripts create test data that may need cleanup after testing
+
+#=============================================
+
+from app.agent.graph import run_graph_with_message
+from pprint import pprint
+
+user_input = """
+I'm user 1. I want to build a habit of going to the gym three times a week for the next 3 months. 
+Can you create a plan for me?
+"""
+
+result = run_graph_with_message(user_input)
+
+for msg in result["messages"]:
+    print(f"{msg.type.upper()}:\n{getattr(msg, 'content', None)}\n")

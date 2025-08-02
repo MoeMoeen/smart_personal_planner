@@ -13,7 +13,46 @@ from fastapi import HTTPException
 from app.models import GoalType
 from typing import Optional
 from datetime import date
+from app.models import GoalType
 
+def validate_plan_semantics(plan: GeneratedPlan) -> None:
+    """
+    Validates that the structured plan has all necessary fields
+    based on its goal_type. Raises a ValueError if something critical is missing.
+    """
+    
+    goal = plan.goal
+    if goal.goal_type == GoalType.habit:
+        required_fields = [
+            "goal_frequency_per_cycle",
+            "goal_recurrence_count",
+            "recurrence_cycle",
+            "default_estimated_time_per_cycle"
+        ]
+        for field in required_fields:
+            value = getattr(goal, field, None)
+            if value is None:
+                raise ValueError(f"🚫 Missing required field for habit goal: '{field}'")
+
+        if not goal.habit_cycles:
+            raise ValueError("🚫 No habit_cycles defined for habit goal")
+
+        for i, cycle in enumerate(goal.habit_cycles):
+            if not cycle.occurrences:
+                raise ValueError(f"🚫 Cycle {i + 1} has no occurrences")
+
+            for j, occ in enumerate(cycle.occurrences):
+                if not occ.tasks:
+                    raise ValueError(f"🚫 Occurrence {j + 1} in cycle {i + 1} has no tasks")
+
+    elif goal.goal_type == GoalType.project:
+        if not goal.end_date:
+            raise ValueError("🚫 Project goal is missing required end_date")
+        if not goal.tasks or len(goal.tasks) == 0:
+            raise ValueError("🚫 Project goal has no tasks")
+
+    else:
+        raise ValueError(f"🚫 Unknown goal_type: {goal.goal_type}")
 
 def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_plan_id : Optional[int] = None) -> Plan:
     """
@@ -21,10 +60,25 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
     Dynamically chooses the goal model (HabitGoal or ProjectGoal) based on goal_type.
     """
     goal_data = plan.goal
+
+    # ✅ Enforce semantic correctness before DB write
+    validate_plan_semantics(plan)
+
     # ✅ Defensive validation: ensure goal_type is supported
-    goal_type = goal_data.goal_type.lower()
-    if goal_type not in ["habit", "project"]:
+    goal_type = goal_data.goal_type
+    if goal_type not in [GoalType.habit, GoalType.project]:
         raise ValueError(f"Unsupported goal type: {goal_data.goal_type}")
+
+    if goal_data.goal_type == GoalType.habit:
+        required_fields = [
+            "goal_frequency_per_cycle",
+            "goal_recurrence_count",
+            "recurrence_cycle",
+            "default_estimated_time_per_cycle"
+        ]
+        for field in required_fields:
+            if getattr(goal_data, field, None) is None:
+                raise ValueError(f"Missing required field for habit goal: '{field}'")
 
     # ✅ Create the appropriate model based on goal_type
     if goal_type == "habit":

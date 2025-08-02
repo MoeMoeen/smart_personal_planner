@@ -1,3 +1,4 @@
+#app/ai/goal_parser_chain.py
 # === goal_parser_chain.py ===
 # This file contains the LangChain chain that parses natural language goal descriptions
 # into structured plans following our AI-driven schema (goal → cycles → occurrences → tasks)
@@ -50,36 +51,53 @@ prompt_template = ChatPromptTemplate.from_messages([
      """
     ),
     ("user",
-     """
-     A user will describe a personal goal in natural language. 
-     Given the user's natural language description of a goal, generate a structured goal planning breakdown.
+    """
+    A user will describe a personal goal in natural language. 
+    Given the user's natural language description of a goal, generate a structured goal planning breakdown.
 
-     Your response MUST:
-     - Follow the JSON structure defined by this format:
-     {format_instructions}
+    Your response MUST:
+    - Follow the exact JSON structure defined by this format:
+    {format_instructions}
 
-     The plan must include:
-     - Top-level goal details (title, type, start date, recurrence info, etc.)
-     - Habit cycles if the goal is recurring (e.g. monthly)
-     - Inside each cycle, define N goal occurrences based on goal_frequency_per_cycle
-     - Inside each occurrence, generate 2–4 detailed tasks:
-         - Include the main action (e.g. "Play football")
-         - Include at least 1 preparation or support task (e.g. commute, packing)
-         - Use realistic estimated_time and due_date fields
+    The plan must include:
+    ✅ Top-level goal metadata:
+    - title
+    - description
+    - goal_type ("habit" or "project")
+    - start_date (must be today or later)
+    - progress (0–100)
 
-     ⚠️ Temporal Logic Requirements:
-     - All dates must be in the future — never in the past.
-     - For project goals, include an end_date that is at least 2 weeks after the start_date.
-     - For habit goals, end_date can be omitted if recurrence is indefinite.
-     - Start_date must not be earlier than today.
-     - Make date logic consistent with the goal type and frequency.
+    🔁 If goal_type is **"habit"**, you MUST also include:
+    - goal_frequency_per_cycle (e.g., 2)
+    - goal_recurrence_count (e.g., 12)
+    - recurrence_cycle (e.g., "monthly")
+    - default_estimated_time_per_cycle (e.g., 120)
+    - habit_cycles → each with:
+        - cycle_label
+        - start_date / end_date
+        - occurrences → each with:
+            - occurrence_order
+            - estimated_effort
+            - 2–4 tasks with:
+                - title
+                - due_date
+                - estimated_time
 
-     Do NOT include motivational or extra explanation text. Only return valid structured data.
+    📦 If goal_type is **"project"**, you MUST include:
+    - end_date (at least 2 weeks after start_date)
+    - tasks (directly under goal)
 
-     User goal: {goal_description}
+    ⚠️ Temporal Constraints:
+    - All dates must be in the future
+    - Habit end_date is optional if ongoing
+    - Project end_date is required and ≥ 2 weeks after start_date
 
-     Today's date: {today_date}
-     """
+    Do NOT include motivational or extra explanation text. Only return valid structured data.
+
+    User goal: {goal_description}
+
+    Today's date: {today_date}
+    """
     )
 ])
 

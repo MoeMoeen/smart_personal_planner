@@ -43,7 +43,7 @@ class HabitCyclePlan(BaseModel):
 # ------------------------------------------
 class GoalPlan(BaseModel):
     title: str = Field(..., description="Title of the goal")
-    description: Optional[str] = Field(None, description="Optional detailed description")
+    description: str = Field(..., description="Detailed description")
     start_date: date = Field(..., description="Start date of the goal")
     end_date: Optional[date] = Field(None, description="End date or deadline of the goal")
     progress: int = Field(0, ge=0, le=100, description="Overall progress score (0–100%)")
