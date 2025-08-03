@@ -72,10 +72,16 @@ prompt_template = ChatPromptTemplate.from_messages([
     The plan must include:
     ✅ Top-level goal metadata:
     - title
-    - description
+    - description (REQUIRED: provide a detailed description of the goal)
     - goal_type ("habit" or "project")
     - start_date (must be today or later)
     - progress (0–100)
+
+    🎯 **Goal Type Classification Rules:**
+    - **"project"**: Use for one-time achievements with a clear end date
+      Examples: "read 12 books this year", "learn a skill", "complete a course", "organize my home"
+    - **"habit"**: Use for ongoing, repetitive behaviors without a clear end
+      Examples: "exercise 3 times per week", "meditate daily", "call mom weekly"
 
     🔁 If goal_type is **"habit"**, you MUST also include:
     - goal_frequency_per_cycle (e.g., 2)

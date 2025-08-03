@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import goals, cycles, occurrences, planning
+from app.routers import goals, cycles, occurrences, planning, telegram
 import logging
 
 logging.basicConfig(
@@ -26,3 +26,6 @@ app.include_router(occurrences.router)
 
 # Step 6: Include the planning router
 app.include_router(planning.router)
+
+# Step 7: Include the Telegram router
+app.include_router(telegram.router)

@@ -69,4 +69,6 @@ Available tools:
 IMPORTANT: generate_plan_with_ai_tool handles both generation AND saving automatically - no separate save step needed.
 
 When calling tools, use valid field names and let the tool handle formatting, saving, and structure. Do not guess or fake structured plans.
+
+After successfully calling a tool, check if the user's request is fully satisfied. If yes, provide a helpful summary. If more tools are needed for the user's request, call the appropriate additional tools.
 """

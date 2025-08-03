@@ -6,7 +6,7 @@ from app.ai.schemas import GeneratedPlan, GoalDescriptionRequest, AIPlanResponse
 from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
 from typing import Optional
-from app.main import logging
+import logging
 from datetime import date
 from app.ai.goal_parser_chain import goal_parser_chain, parser
 from app.crud import planner
@@ -49,13 +49,44 @@ def generate_plan_with_ai_tool(goal_prompt: str, user_id: int) -> dict:
         logger.info(f"✅ TOOL SUCCESS: Plan generated and saved for user {user_id}")
         
         # Convert the response to a dict format that the LLM can understand
+        goal = response.plan.goal
+        
+        # Extract tasks information
+        tasks_info = ""
+        if goal.goal_type == "project" and goal.tasks:
+            tasks_list = []
+            for i, task in enumerate(goal.tasks[:5], 1):  # Show first 5 tasks
+                due_date = task.due_date.strftime("%Y-%m-%d") if task.due_date else "No due date"
+                time_str = f" ({task.estimated_time} min)" if task.estimated_time else ""
+                tasks_list.append(f"{i}. {task.title}{time_str} - Due: {due_date}")
+            tasks_info = "\n".join(tasks_list)
+            if len(goal.tasks) > 5:
+                tasks_info += f"\n... and {len(goal.tasks) - 5} more tasks"
+                
+        elif goal.goal_type == "habit" and goal.habit_cycles:
+            # For habits, show cycle and frequency info
+            cycle_info = []
+            cycle_info.append(f"📅 Schedule: {goal.recurrence_cycle}")
+            cycle_info.append(f"🔄 Frequency: {goal.goal_frequency_per_cycle} times per {goal.recurrence_cycle}")
+            if goal.default_estimated_time_per_cycle:
+                cycle_info.append(f"⏱️ Time per session: {goal.default_estimated_time_per_cycle} minutes")
+            tasks_info = "\n".join(cycle_info)
+        
+        # Format timeline
+        timeline = f"{goal.start_date}"
+        if goal.end_date:
+            timeline += f" to {goal.end_date}"
+        
         result = {
-            "plan_title": response.plan.goal.title,
-            "plan_type": response.plan.goal.goal_type,
+            "plan_title": goal.title,
+            "goal_type": goal.goal_type,
+            "goal_description": goal.description,
+            "timeline": timeline,
+            "tasks_info": tasks_info,
             "user_id": response.user_id,
             "source": response.source,
             "status": "generated_and_saved",
-            "message": f"Plan '{response.plan.goal.title}' successfully generated and saved for user {user_id}"
+            "message": f"✅ Created {goal.goal_type} goal: '{goal.title}' with detailed plan structure"
         }
         
         return result
@@ -179,6 +210,13 @@ def refine_existing_plan(plan_id: int, user_feedback: str, user_id: int) -> str:
 
         db = SessionLocal()
         logger.info(f"Refining plan {plan_id} for user {user_id} with feedback: {user_feedback}")
+        
+        # Verify the plan belongs to the user before refining
+        from app.models import Plan
+        plan = db.query(Plan).filter(Plan.id == plan_id, Plan.user_id == user_id).first()
+        if not plan:
+            return f"❌ Plan {plan_id} not found or doesn't belong to user {user_id}"
+        
         result = generate_refined_plan_from_feedback(
             db=db,
             plan_id=plan_id,
@@ -186,7 +224,7 @@ def refine_existing_plan(plan_id: int, user_feedback: str, user_id: int) -> str:
             suggested_changes="",  # You can split this later if needed
         )
         new_plan = result["saved_plan"]
-        return f"✅ Refined plan created successfully with ID {new_plan.id} for user {user_id} and source plan {plan_id}."
+        return f"✅ Refined plan created successfully with ID {new_plan.id} for user {user_id}, based on source plan {plan_id}. Refinement round: {new_plan.refinement_round}."
     except Exception as e:
         logger.error(f"Error refining plan {plan_id} for user {user_id}: {str(e)}")
         return f"❌ Error refining plan: {str(e)}"

@@ -1,6 +1,7 @@
 from sqlalchemy import (
     Column,
     Integer,
+    BigInteger,
     String,
     Boolean,
     Date,
@@ -299,10 +300,14 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
-    # created_at = Column(Date, nullable=False)
-
+    email = Column(String, unique=True, nullable=True)  # Made nullable for Telegram users
+    hashed_password = Column(String, nullable=True)  # Made nullable for Telegram users
+    
+    # Telegram integration fields
+    telegram_user_id = Column(BigInteger, unique=True, nullable=True, index=True)  # Telegram user ID
+    username = Column(String, nullable=True)  # Telegram username
+    first_name = Column(String, nullable=True)  # Telegram first name
+    last_name = Column(String, nullable=True)  # Telegram last name
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
