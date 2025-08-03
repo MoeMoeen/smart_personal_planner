@@ -108,12 +108,15 @@ def classify_intent_node(state: AgentState) -> AgentState:
     # Extract conversation context
     context = state.get("conversation_context", {})
     
-    # Intent classification logic
+    # Intent classification logic with conversation context
     classification_prompt = f"""
-Analyze this user message and classify their intent. Consider the conversation context.
+Analyze this user message and classify their intent. Consider the conversation context and previous messages.
 
-User message: "{user_input}"
+Current user message: "{user_input}"
 Previous context: {context}
+
+CONVERSATION HISTORY:
+{chr(10).join([f"{msg.__class__.__name__}: {str(msg.content)[:100]}..." for msg in messages[-5:]])}
 
 Classify as one of:
 1. "plan_management" - User wants to create, refine, view, or manage plans/goals (e.g., "I want to...", "Help me plan...", "Refine my plan...", "Show my goals...")
@@ -126,7 +129,9 @@ Respond with just the classification word.
 """
     
     try:
-        response = llm_classifier.invoke([HumanMessage(content=classification_prompt)])
+        # ✅ SOLUTION: Pass conversation history to intent classifier
+        classification_messages = messages[-3:] + [HumanMessage(content=classification_prompt)]  # Include recent context
+        response = llm_classifier.invoke(classification_messages)
         intent = str(response.content).strip().lower()
         
         # Validate intent
@@ -225,7 +230,9 @@ Provide a comprehensive response that:
 """
     
     try:
-        response = llm_conversational.invoke([HumanMessage(content=conversation_prompt)])
+        # ✅ SOLUTION: Include conversation history for conversational responses
+        conversation_messages = messages[-5:] + [HumanMessage(content=conversation_prompt)]  # Include recent context
+        response = llm_conversational.invoke(conversation_messages)
         response_text = str(response.content)
         
         logger.info(f"💬 CONVERSATIONAL NODE: Generated {len(response_text)} character response")
@@ -294,7 +301,7 @@ def plan_management_agent_node(state: AgentState) -> AgentState:
     user_input = str(last_human_message.content)
     
     # Add system prompt for plan management with conversation history
-    system_msg = SystemMessage(content=system_prompt(user_input, user_id))
+    system_msg = SystemMessage(content=system_prompt())
     plan_management_messages = messages + [system_msg]  # Include full history for context
     
     logger.info(f"\n🧠 [PLAN MANAGEMENT Node] Processing plan management for: {user_input[:100]}...\n")
@@ -437,24 +444,40 @@ graph_builder.add_edge("conversation", END)
 
 graph = graph_builder.compile()
 
-def run_graph_with_message(user_input: str, user_id: int = 1):
+def run_graph_with_message(user_input: str, user_id: int = 1, conversation_history: Optional[List[BaseMessage]] = None):
     from langchain_core.messages import HumanMessage, SystemMessage
     from app.ai.prompts import system_prompt
-    """Run the LangGraph with a user input message."""
+    from app.agent.conversation_manager import conversation_manager
+    """Run the LangGraph with a user input message and persistent conversation history."""
     logger.info("🚀 GRAPH EXECUTION: Starting intelligent LangGraph workflow")
     logger.info(f"📝 GRAPH INPUT: '{user_input}' for user_id={user_id}")
 
     logger.info("🔧 GRAPH SETUP: Creating initial state with user message")
     
+    # ✅ SOLUTION: Load conversation history from persistent store
+    initial_messages = []
+    
+    # Load previous conversation history from manager
+    if conversation_history is None:  # Auto-load from manager if not provided
+        conversation_history = conversation_manager.get_conversation_history(user_id, max_recent_messages=8)
+    
+    if conversation_history:
+        initial_messages.extend(conversation_history)
+        logger.info(f"🧠 CONTEXT: Loaded {len(conversation_history)} previous messages for context continuity")
+    
+    # Add the new user message
+    new_user_message = HumanMessage(content=user_input)
+    initial_messages.append(new_user_message)
+    
     # Create initial state with all required fields
     state: AgentState = {
-        "messages": [HumanMessage(content=user_input)], 
+        "messages": initial_messages,  # ✅ NOW includes conversation history!
         "user_id": user_id,
         "conversation_context": {},
         "intent": None
     }
     
-    logger.info(f"📊 GRAPH SETUP: Initial state has {len(state['messages'])} messages")
+    logger.info(f"📊 GRAPH SETUP: Initial state has {len(state['messages'])} messages (including history)")
 
     logger.info("⚡ GRAPH EXECUTION: Invoking intelligent graph with recursion limit=10")
     # Set recursion limit to prevent infinite loops
@@ -462,12 +485,25 @@ def run_graph_with_message(user_input: str, user_id: int = 1):
 
     logger.info("✅ GRAPH COMPLETE: Intelligent LangGraph execution finished!")
 
+    # ✅ SOLUTION: Save the conversation to persistent store
+    # Save all new messages (user input + AI responses) to conversation history
+    new_messages: List[BaseMessage] = [new_user_message]  # Start with the user's message
+    
+    # Add AI responses from this interaction
+    for msg in final_state["messages"][len(initial_messages):]:  # Only new messages
+        if isinstance(msg, (AIMessage, HumanMessage)):  # Skip system messages
+            new_messages.append(msg)
+    
+    # Save to conversation manager
+    conversation_manager.add_messages(user_id, new_messages)
+
     # Step counter to track how many steps were taken
-    step_count = len(final_state["messages"]) - 1  # Subtract initial user message
+    step_count = len(final_state["messages"]) - len(initial_messages)  # Subtract initial messages
 
     logger.info(f"📈 GRAPH SUMMARY: Total steps taken: {step_count}")
     logger.info(f"📊 GRAPH SUMMARY: Final state has {len(final_state['messages'])} total messages")
     logger.info(f"🎯 GRAPH SUMMARY: Final intent: {final_state.get('intent', 'Unknown')}")
+    logger.info(f"💾 GRAPH SUMMARY: Saved {len(new_messages)} messages to conversation history")
 
     return final_state
 

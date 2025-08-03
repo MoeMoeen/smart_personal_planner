@@ -8,8 +8,9 @@ import sys
 import logging
 from dotenv import load_dotenv
 
-# Add the current directory to Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add the project root directory to Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.insert(0, project_root)
 
 # Load environment variables
 load_dotenv()
