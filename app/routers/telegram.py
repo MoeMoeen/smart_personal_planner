@@ -10,7 +10,8 @@ from pydantic import BaseModel
 import asyncio
 from datetime import datetime
 
-from app.agent.graph import run_graph_with_message  # Our LangGraph workflow
+from app.agent.graph import run_graph_with_message  # Our LangGraph workflow (Complex Agent)
+from app.agent.agent_factory import AgentFactory  # Alternative agent factory
 from app.db import SessionLocal
 from app.models import User
 from sqlalchemy.orm import Session
@@ -199,9 +200,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Send "typing" action to show bot is processing
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         
-        # Run the enhanced LangGraph workflow with the user's message
+        # 🤖 CENTRALIZED AGENT SYSTEM - Defaults to Complex LangGraph
+        # Environment variable AGENT_TYPE=simple can switch to simple agent
         try:
-            result = run_graph_with_message(user_message, user_id)
+            result = run_graph_with_message(user_message, user_id)  # Uses complex agent by default
             
             # Extract the final response from the LangGraph result
             if result and "messages" in result and len(result["messages"]) > 0:

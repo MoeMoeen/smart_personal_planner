@@ -295,13 +295,13 @@ def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text
         all_feedbacks = (
             db.query(Feedback)
             .filter(Feedback.goal_id == goal.id)
-            .order_by(Feedback.timestamp.asc())
+            .order_by(Feedback.created_at.asc())
             .all()
         )
 
         # ✅ 2. Format each previous feedback entry
         prior_feedback_texts = [
-            f"[{fb.timestamp.strftime('%Y-%m-%d %H:%M')}] {fb.feedback_text}"
+            f"[{fb.created_at.strftime('%Y-%m-%d %H:%M')}] {fb.feedback_text}"
             + (f" — Suggested: {fb.suggested_changes}" if fb.suggested_changes is not None else "")
             for fb in all_feedbacks
         ]
@@ -319,12 +319,39 @@ def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text
         print(prior_feedback_combined)
         print("------ [DEBUG] End of Prior Feedback Combined ------")
 
-        # ✅ 5. Call LangChain refinement chain with the combined feedback
-        result = refine_plan_chain.invoke({
-            "goal_description": goal.description or goal.title,
-            "previous_plan": previous_plan_content,
-            "prior_feedback": prior_feedback_combined
-        })
+        # ✅ 5. Use robust refinement function that handles incomplete outputs gracefully
+        from app.ai.goal_parser_chain import robust_refine_plan
+        
+        # Prepare original plan data for field completion
+        original_plan_data = None
+        if goal.goal_type == "habit":
+            habit_goal = db.query(HabitGoal).filter(HabitGoal.id == goal.id).first()
+            if habit_goal:
+                original_plan_data = {
+                    "goal_recurrence_count": habit_goal.goal_recurrence_count,
+                    "goal_frequency_per_cycle": habit_goal.goal_frequency_per_cycle,
+                    "recurrence_cycle": habit_goal.recurrence_cycle,
+                    "default_estimated_time_per_cycle": habit_goal.default_estimated_time_per_cycle
+                }
+        
+        try:
+            # Try robust refinement first
+            refined_plan_data = robust_refine_plan(
+                goal_description=goal.description or goal.title,
+                previous_plan=previous_plan_content,
+                prior_feedback=prior_feedback_combined,
+                original_plan_data=original_plan_data
+            )
+            result = {"plan": refined_plan_data}
+            
+        except Exception as e:
+            print(f"Robust refinement failed, falling back to original chain: {e}")
+            # Fallback to original chain
+            result = refine_plan_chain.invoke({
+                "goal_description": goal.description or goal.title,
+                "previous_plan": previous_plan_content,
+                "prior_feedback": prior_feedback_combined
+            })
         
         print(f"Plan user_id: {plan.user_id}, type: {type(plan.user_id)}")
         print(f"Plan id: {plan.id}, type: {type(plan.id)}")

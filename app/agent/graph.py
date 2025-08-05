@@ -1,5 +1,29 @@
 # app/agent/graph.py
 
+"""
+Centralized Agent System - Complex LangGraph Architecture
+=========================================================
+
+This module provides the centralized entry point for all agent interactions:
+
+AGENT SELECTION:
+- Default: Complex LangGraph Agent (sophisticated reasoning, conversation memory)
+- Alternative: Simple Trust-Based Agent (direct tool usage, efficient processing)
+
+CONFIGURATION:
+- Set AGENT_TYPE=simple environment variable to use simple agent
+- Default: Uses complex LangGraph system for maximum intelligence
+
+USAGE:
+    from app.agent.graph import run_graph_with_message
+    
+    # Use default complex agent
+    result = run_graph_with_message("I want to learn Python", user_id=1)
+    
+    # Explicitly choose agent type
+    result = run_graph_with_message("I want to learn Python", user_id=1, agent_type="simple")
+"""
+
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_openai import ChatOpenAI
@@ -269,25 +293,6 @@ def plan_management_agent_node(state: AgentState) -> AgentState:
     
     if last_human_message:
         user_input = str(last_human_message.content)
-        
-        # Check if we've already successfully processed this exact goal
-        successful_tool_for_this_goal = False
-        for msg in messages:
-            if (hasattr(msg, 'type') and msg.type == "tool" and 
-                hasattr(msg, 'content') and "successfully created and saved" in str(msg.content).lower()):
-                successful_tool_for_this_goal = True
-                break
-        
-        if successful_tool_for_this_goal:
-            # We already successfully processed this goal, provide summary
-            logger.info("🧠 [PLAN MANAGEMENT Node] Plan already processed, providing summary...")
-            summary_response = AIMessage(content="Perfect! I've successfully created and saved your plan. Your structured plan is now ready and includes detailed tasks, timelines, and actionable steps. You can start working on your goal right away!")
-            return {
-                "messages": [summary_response], 
-                "user_id": user_id,
-                "conversation_context": state.get("conversation_context"),
-                "intent": state.get("intent")
-            }
     
     if not last_human_message:
         logger.error("🧠 [PLAN MANAGEMENT Node] No human message found")
@@ -444,7 +449,36 @@ graph_builder.add_edge("conversation", END)
 
 graph = graph_builder.compile()
 
-def run_graph_with_message(user_input: str, user_id: int = 1, conversation_history: Optional[List[BaseMessage]] = None):
+def run_graph_with_message(user_input: str, user_id: int = 1, conversation_history: Optional[List[BaseMessage]] = None, agent_type: str = "complex"):
+    """
+    Centralized entry point for processing user messages with agent selection.
+    
+    Args:
+        user_input: The user's message
+        user_id: User ID for personalization
+        conversation_history: Optional conversation history
+        agent_type: "complex" (default) or "simple" to choose agent architecture
+        
+    Returns:
+        Dict containing the response and metadata
+    """
+    import os
+    
+    # Get agent type from environment if not specified
+    if agent_type == "complex":
+        agent_type = os.getenv("AGENT_TYPE", "complex").lower()
+    
+    if agent_type == "simple":
+        # Use simple trust-based agent
+        from app.agent.agent_factory import AgentFactory
+        agent = AgentFactory.create_agent("simple")
+        return agent.process_message(user_input, user_id)
+    else:
+        # Use complex LangGraph agent (default)
+        return _run_complex_graph(user_input, user_id, conversation_history)
+
+def _run_complex_graph(user_input: str, user_id: int = 1, conversation_history: Optional[List[BaseMessage]] = None):
+    """Internal function to run the complex LangGraph agent"""
     from langchain_core.messages import HumanMessage, SystemMessage
     from app.ai.prompts import system_prompt
     from app.agent.conversation_manager import conversation_manager
@@ -507,12 +541,27 @@ def run_graph_with_message(user_input: str, user_id: int = 1, conversation_histo
 
     return final_state
 
+# Backward compatibility - keep the old function name as an alias
+def run_complex_graph_with_message(user_input: str, user_id: int = 1, conversation_history: Optional[List[BaseMessage]] = None):
+    """Backward compatibility alias for the complex graph"""
+    return _run_complex_graph(user_input, user_id, conversation_history)
+
 # If running this file directly, execute the graph with a sample input
 if __name__ == "__main__":
     print("🧠 LangGraph is running locally...")
+    print("🤖 Using Complex Agent (LangGraph) by default")
+    print("💡 Set AGENT_TYPE=simple to test simple agent")
+    
     example_input = "I want to become a CTO in a tech company in China. Can you create a plan for me?"
     final_state = run_graph_with_message(example_input)
 
     print("\n🧾 Final Messages:")
-    for msg in final_state["messages"]:
-        print(f"{msg.type.upper()}: {msg.content}\n")
+    if isinstance(final_state, dict) and "messages" in final_state:
+        # Complex agent result
+        for msg in final_state["messages"]:
+            print(f"{msg.type.upper()}: {msg.content}\n")
+    else:
+        # Simple agent result
+        print(f"RESPONSE: {final_state.get('response', 'No response')}")
+        print(f"AGENT: {final_state.get('agent_type', 'Unknown')}")
+        print(f"SUCCESS: {final_state.get('success', False)}")

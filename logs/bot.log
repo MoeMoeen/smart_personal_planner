@@ -1,0 +1,22 @@
+nohup: ignoring input
+2025-08-04 21:27:17,641 - __main__ - INFO - ✅ All required environment variables are set
+🤖 Smart Personal Planner - Telegram Bot Testing
+==================================================
+
+📋 Testing Instructions:
+1. Open your Telegram app
+2. Find your bot (search for your bot username)
+3. Start a conversation with /start
+4. Test intelligent conversations:
+   • 'Hello' (greeting)
+   • 'What is a project goal?' (question)
+   • 'I want to learn Python in 6 months' (plan management)
+   • 'Can you refine my last plan?' (refinement)
+5. Press Ctrl+C to stop the bot
+
+Press Enter when ready to start the bot...Traceback (most recent call last):
+  File "/home/moemoeen/Documents/GitHub/Python_Projects_Personal/smart_personal_planner/start_telegram_bot.py", line 96, in <module>
+    exit(main())
+  File "/home/moemoeen/Documents/GitHub/Python_Projects_Personal/smart_personal_planner/start_telegram_bot.py", line 84, in main
+    input("\nPress Enter when ready to start the bot...")
+OSError: [Errno 9] Bad file descriptor

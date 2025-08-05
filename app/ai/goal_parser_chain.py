@@ -14,6 +14,7 @@ from decouple import config
 from langchain.schema.runnable import RunnableMap
 from datetime import date
 from datetime import datetime, timezone  # For handling timestamps in feedback
+from typing import Optional, Dict, Any                      # ✅ For type hints
 
 
 #Create a reusable LangChain pipeline that:
@@ -83,11 +84,16 @@ prompt_template = ChatPromptTemplate.from_messages([
     - **"habit"**: Use for ongoing, repetitive behaviors without a clear end
       Examples: "exercise 3 times per week", "meditate daily", "call mom weekly"
 
-    🔁 If goal_type is **"habit"**, you MUST also include:
-    - goal_frequency_per_cycle (e.g., 2)
-    - goal_recurrence_count (e.g., 12)
-    - recurrence_cycle (e.g., "monthly")
-    - default_estimated_time_per_cycle (e.g., 120)
+    🔁 If goal_type is **"habit"**, you MUST include ALL of these fields:
+    - goal_frequency_per_cycle (REQUIRED: e.g., 2 times per month, 3 times per week)
+    - goal_recurrence_count (REQUIRED: e.g., 6 months, 12 weeks - NEVER leave this null)
+    - recurrence_cycle (REQUIRED: e.g., "daily", "weekly", "monthly")
+    - default_estimated_time_per_cycle (REQUIRED: e.g., 60 minutes per session)
+    
+    📝 **Habit Parsing Examples:**
+    - "every other day" → goal_frequency_per_cycle: 15, recurrence_cycle: "monthly", goal_recurrence_count: 6
+    - "3 times per week" → goal_frequency_per_cycle: 3, recurrence_cycle: "weekly", goal_recurrence_count: 12
+    - "daily" → goal_frequency_per_cycle: 1, recurrence_cycle: "daily", goal_recurrence_count: 90
     - habit_cycles → each with:
         - cycle_label
         - start_date / end_date
@@ -123,7 +129,15 @@ refinement_prompt_template = ChatPromptTemplate.from_messages([
     ("system", 
      f"""
      You are a smart AI personal planner who revises structured goal plans based on user feedback.
-     Today’s date is {today}. Make sure all output respects today’s date.
+     Today's date is {today}. Make sure all output respects today's date.
+     
+     CRITICAL: When generating refined plans, you MUST include ALL required fields:
+     - For habit goals: goal_recurrence_count (NEVER NULL), goal_frequency_per_cycle, recurrence_cycle, default_estimated_time_per_cycle
+     - For project goals: end_date, tasks with due_date and estimated_time
+     - Always include complete habit_cycles with occurrences and tasks
+     - Never leave required fields as null or missing
+     
+     ⚠️  VALIDATION RULE: If goal_type is "habit", then goal_recurrence_count MUST be a positive integer (e.g., 6, 12, 24)
      """
     ),
     ("user",
@@ -134,6 +148,7 @@ refinement_prompt_template = ChatPromptTemplate.from_messages([
      - Review the original goal description
      - Consider the user's feedback
      - Improve the previously generated plan accordingly
+     - ENSURE ALL REQUIRED FIELDS ARE INCLUDED (especially goal_recurrence_count for habits)
 
      Strictly follow these output rules:
      - All dates must be in the future (not before today)
@@ -141,6 +156,10 @@ refinement_prompt_template = ChatPromptTemplate.from_messages([
          - Start date must be today or later
          - End date must be at least 2 weeks after start date
      - For habit goals:
+         - MUST include goal_recurrence_count (number of cycles to repeat)
+         - MUST include goal_frequency_per_cycle (how many times per cycle)
+         - MUST include recurrence_cycle (daily/weekly/monthly)
+         - MUST include default_estimated_time_per_cycle
          - End date is optional (may be recurring forever)
      - Inside each cycle or plan:
          - Add 2–4 detailed tasks per occurrence
@@ -159,7 +178,7 @@ refinement_prompt_template = ChatPromptTemplate.from_messages([
      Previous structured plan to refine:
      {previous_plan}
 
-     Return only a valid structured plan. Do not include extra explanation or chat text.
+     Return only a valid structured plan with ALL required fields included. Do not include extra explanation or chat text.
      """
     )
 ])
@@ -198,5 +217,70 @@ goal_parser_chain = RunnableMap({
 refine_plan_chain = RunnableMap({
     "plan" : refinement_prompt_template | llm | parser
 })
+
+# ✅ NEW: Robust refinement function that handles incomplete outputs gracefully
+def robust_refine_plan(goal_description: str, previous_plan: str, prior_feedback: str, 
+                      original_plan_data: Optional[Dict[str, Any]] = None) -> GeneratedPlan:
+    """
+    Enhanced refinement function with robust parsing that handles incomplete LLM outputs.
+    
+    Args:
+        goal_description: Original goal description
+        previous_plan: Formatted previous plan content  
+        prior_feedback: Combined feedback from all previous iterations
+        original_plan_data: Original plan data for field completion
+        
+    Returns:
+        GeneratedPlan: Validated and complete plan
+    """
+    try:
+        # Import here to avoid circular imports
+        from app.ai.robust_parser import RobustParser
+        
+        # Initialize robust parser
+        robust_parser = RobustParser(llm=llm, max_retries=3)
+        
+        # Generate initial LLM output using the refinement prompt
+        messages = refinement_prompt_template.format_messages(
+            goal_description=goal_description,
+            previous_plan=previous_plan,
+            prior_feedback=prior_feedback
+        )
+        
+        response = llm.invoke(messages)
+        llm_output = response.content if hasattr(response, 'content') else str(response)
+        
+        # Ensure we have a string output
+        if isinstance(llm_output, list):
+            llm_output = str(llm_output)
+        elif not isinstance(llm_output, str):
+            llm_output = str(llm_output)
+        
+        # Use robust parser to handle any missing fields
+        original_context = f"Goal: {goal_description}\nFeedback: {prior_feedback}"
+        
+        result = robust_parser.parse_with_retry(
+            llm_output=llm_output,
+            target_model=GeneratedPlan,
+            original_prompt_context=original_context,
+            previous_plan_data=original_plan_data
+        )
+        
+        return result
+        
+    except Exception as e:
+        # Fallback to original chain if robust parsing fails
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Robust parsing failed, falling back to original chain: {e}")
+        
+        # Use original chain as fallback
+        result = refine_plan_chain.invoke({
+            "goal_description": goal_description,
+            "previous_plan": previous_plan, 
+            "prior_feedback": prior_feedback
+        })
+        
+        return result["plan"]
 
 

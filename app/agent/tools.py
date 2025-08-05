@@ -2,21 +2,21 @@
 
 from langchain_core.tools import tool
 from app.crud.planner import save_generated_plan
-from app.ai.schemas import GeneratedPlan, GoalDescriptionRequest, AIPlanResponse
+from app.ai.schemas import GeneratedPlan, GoalDescriptionRequest, AIPlanResponse, PlanFeedbackRequest, PlanFeedbackResponse
 from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
 from typing import Optional
 import logging
-from datetime import date
+from datetime import date, datetime
 from app.ai.goal_parser_chain import goal_parser_chain, parser
 from app.crud import planner
-from app.routers.planning import generate_plan_from_ai  # ✅ Import the existing function
-from app.models import GoalType, HabitGoal, HabitCycle, GoalOccurrence, Task
+from app.routers.planning import generate_plan_from_ai, plan_feedback  # ✅ Import existing functions
+from app.models import GoalType, HabitGoal, HabitCycle, GoalOccurrence, Task, PlanFeedbackAction
 
 logger = logging.getLogger(__name__)
 
 @tool("generate_plan_with_ai")
-def generate_plan_with_ai_tool(goal_prompt: str, user_id: int) -> dict:
+def generate_plan_with_ai_tool(goal_prompt: str, user_id: int) -> str:
     """
     Tool: Generate a structured goal + task plan from a natural language description and save it to database.
     
@@ -90,15 +90,14 @@ def generate_plan_with_ai_tool(goal_prompt: str, user_id: int) -> dict:
             "message": f"✅ Created {goal.goal_type} goal: '{goal.title}' with detailed plan structure"
         }
         
-        return result
+        # Return a clear success message that the agent can understand
+        return f"✅ PLAN SUCCESSFULLY CREATED AND SAVED!\n\nTitle: {goal.title}\nType: {goal.goal_type}\nDescription: {goal.description}\nTimeline: {timeline}\n\n{tasks_info}\n\nPlan ID: {response.plan.plan_id}"
         
     except Exception as e:
         logger.error(f"❌ TOOL ERROR: generate_plan_with_ai_tool failed: {str(e)}")
-        return {
-            "error": str(e),
-            "status": "failed",
-            "message": f"Failed to generate plan: {str(e)}"
-        }
+        error_msg = str(e)
+        # Return a clear error message that the agent can understand
+        return f"❌ TOOL FAILED: {error_msg}\n\nThe plan could not be created. Please ask the user for more specific details about their goal."
     finally:
         if 'db' in locals():
             db.close()
@@ -187,48 +186,141 @@ def get_user_approved_plans(user_id: int) -> str:
     finally:
         db.close()
 
+def _plan_feedback_helper(plan_id: int, feedback_text: str, action: str, user_id: int, suggested_changes: Optional[str] = None) -> dict:
+    """
+    Helper function to handle plan feedback without LangChain tool decorators.
+    This allows us to call it from other tools without issues.
+    """
+    logger.info("🔧 HELPER: _plan_feedback_helper started")
+    
+    try:
+        # Create a database session
+        db = SessionLocal()
+        
+        # Convert action string to PlanFeedbackAction enum
+        if action.lower() == "approve":
+            feedback_action = PlanFeedbackAction.APPROVE
+        elif action.lower() == "refine":
+            feedback_action = PlanFeedbackAction.REQUEST_REFINEMENT
+        else:
+            return {
+                "error": f"Invalid action '{action}'. Must be 'approve' or 'refine'",
+                "status": "failed",
+                "message": "Invalid feedback action provided"
+            }
+        
+        # Get the plan first to extract goal_id
+        from app.crud import crud
+        plan = crud.get_plan_by_id(db, plan_id)
+        if not plan:
+            return {
+                "error": f"Plan {plan_id} not found",
+                "status": "failed",
+                "message": f"Plan {plan_id} not found"
+            }
+        
+        # Create the request object that the existing function expects  
+        request = PlanFeedbackRequest(
+            plan_id=plan_id,
+            goal_id=plan.goal_id,  # type: ignore  # SQLAlchemy runtime value vs Column type
+            feedback_text=feedback_text,
+            plan_feedback_action=feedback_action,
+            user_id=user_id,
+            suggested_changes=suggested_changes,
+            timestamp=datetime.now()
+        )
+        
+        logger.info("🔄 HELPER: Calling existing plan_feedback function")
+        
+        # Call the existing, tested function
+        response: PlanFeedbackResponse = plan_feedback(request=request, db=db)
+        
+        logger.info(f"✅ HELPER SUCCESS: Feedback processed for plan {plan_id}")
+        
+        # Convert the response to a dict format
+        result = {
+            "message": response.message,
+            "feedback": response.feedback,
+            "plan_id": response.plan_id,
+            "action": response.plan_feedback_action.value,
+            "goal_id": response.goal_id,
+            "status": "success"
+        }
+        
+        # If a refined plan was created, include those details
+        if response.refined_plan_id:
+            result["refined_plan_id"] = response.refined_plan_id
+            result["refinement_created"] = True
+            
+            # Extract key details from the refined plan
+            if response.refined_plan:
+                refined_goal = response.refined_plan.goal
+                result["refined_plan_title"] = refined_goal.title
+                result["refined_plan_type"] = refined_goal.goal_type
+                result["refined_plan_description"] = refined_goal.description
+        else:
+            result["refinement_created"] = False
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ HELPER ERROR: _plan_feedback_helper failed: {str(e)}")
+        return {
+            "error": str(e),
+            "status": "failed",
+            "message": f"Failed to process feedback: {str(e)}"
+        }
+    finally:
+        if 'db' in locals():
+            db.close()
+            logger.info("💾 HELPER: Database session closed")
+
+@tool("plan_feedback")
+def plan_feedback_tool(plan_id: int, feedback_text: str, action: str, user_id: int, suggested_changes: Optional[str] = None) -> dict:
+    """
+    Tool: Submit feedback on a generated plan - either approve it or request refinement.
+    
+    This tool wraps the existing backend plan_feedback logic and handles:
+    - Plan approval (sets is_approved=True and sets other plans' is_approved=False, manages business rules)
+    - Plan refinement (aggregates feedback history, generates refined plan)
+    
+    Parameters:
+    - plan_id: ID of the plan to provide feedback on
+    - feedback_text: The user's feedback about the plan
+    - action: Either "approve" or "refine" 
+    - user_id: The user ID submitting feedback
+    - suggested_changes: Optional specific changes requested (used for refinement)
+    
+    Returns:
+    A dictionary containing the feedback result and any refined plan details.
+    """
+    return _plan_feedback_helper(plan_id, feedback_text, action, user_id, suggested_changes)
+
 @tool("refine_existing_plan")
 def refine_existing_plan(plan_id: int, user_feedback: str, user_id: int) -> str:
     """
-    Refine an existing plan based on user feedback and create a new version.
-
-    Use this tool when the user wants to revise, improve, or adjust a plan they previously created or received from the AI.
-    This tool uses the original plan, the accumulated feedback, and the user's latest input to generate a refined version.
+    DEPRECATED: Use plan_feedback_tool with action='refine' instead.
     
-    Args:
-        plan_id (int): ID of the plan to refine
-        user_feedback (str): Feedback text from the user describing the desired changes
-        user_id (int): ID of the user making the request
-
-    Returns:
-        str: Confirmation message with the new refined plan's ID, user ID, and source plan ID.
-    Raises:
-        Exception: If there is an error during the refinement process.
+    This tool is kept for backward compatibility but plan_feedback_tool is preferred
+    as it follows the complete backend logic including feedback history aggregation.
     """
-    try:
-        from app.crud.planner import generate_refined_plan_from_feedback
-        from app.db import SessionLocal
-
-        db = SessionLocal()
-        logger.info(f"Refining plan {plan_id} for user {user_id} with feedback: {user_feedback}")
-        
-        # Verify the plan belongs to the user before refining
-        from app.models import Plan
-        plan = db.query(Plan).filter(Plan.id == plan_id, Plan.user_id == user_id).first()
-        if not plan:
-            return f"❌ Plan {plan_id} not found or doesn't belong to user {user_id}"
-        
-        result = generate_refined_plan_from_feedback(
-            db=db,
-            plan_id=plan_id,
-            feedback_text=user_feedback,
-            suggested_changes="",  # You can split this later if needed
-        )
-        new_plan = result["saved_plan"]
-        return f"✅ Refined plan created successfully with ID {new_plan.id} for user {user_id}, based on source plan {plan_id}. Refinement round: {new_plan.refinement_round}."
-    except Exception as e:
-        logger.error(f"Error refining plan {plan_id} for user {user_id}: {str(e)}")
-        return f"❌ Error refining plan: {str(e)}"
+    logger.warning("⚠️ DEPRECATED: refine_existing_plan called. Use plan_feedback_tool instead.")
+    
+    # Call the helper function directly
+    result = _plan_feedback_helper(
+        plan_id=plan_id,
+        feedback_text=user_feedback,
+        action="refine",
+        user_id=user_id
+    )
+    
+    if result.get("status") == "success":
+        if result.get("refinement_created"):
+            return f"✅ {result['message']} New plan ID: {result.get('refined_plan_id')}"
+        else:
+            return f"✅ {result['message']}"
+    else:
+        return f"❌ {result.get('message', 'Unknown error')}"
 
 
 @tool("get_plan_details_smart")
@@ -374,7 +466,8 @@ def get_plan_details_smart(user_id: int, plan_id: Optional[int] = None) -> str:
 all_tools = [
     get_user_plans,
     get_user_approved_plans,
-    refine_existing_plan,
+    plan_feedback_tool,  # ✅ NEW: Complete feedback tool using backend logic
+    refine_existing_plan,  # ✅ DEPRECATED: Kept for backward compatibility
     generate_plan_with_ai_tool,  # This tool now handles generation AND saving automatically
     get_plan_details_smart,  # ✅ SMART: Use existing CRUD + handle "latest plan" requests
 ]
