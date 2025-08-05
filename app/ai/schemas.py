@@ -1,11 +1,17 @@
 # app/ai/schemas.py
 # --- Pydantic is Python's data validation library used for schemas ---
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 from datetime import date, datetime, timezone
-from enum import Enum
 from app.models import PlanFeedbackAction  # Import the enum from models.py
+
+from enum import Enum
+
+class GoalTypeEnum(str, Enum):
+    habit = "habit"
+    project = "project"
+    hybrid = "hybrid"
 
 
 # ------------------------------------------
@@ -39,42 +45,85 @@ class HabitCyclePlan(BaseModel):
 
 
 # ------------------------------------------
-# ✅ 4. Goal: Top-level user-defined objective
+# ✅ 4. Goal: Lightweight metadata container (title & description only)
 # ------------------------------------------
 class GoalPlan(BaseModel):
     title: str = Field(..., description="Title of the goal")
     description: str = Field(..., description="Detailed description")
-    start_date: date = Field(..., description="Start date of the goal")
-    end_date: Optional[date] = Field(None, description="End date or deadline of the goal")
-    progress: int = Field(0, ge=0, le=100, description="Overall progress score (0–100%)")
-    goal_type: str = Field(..., description="Either 'habit' or 'project'")
     user_id: Optional[int] = Field(None, description="Optional user ID for tracking ownership")
-    # plan_id: Optional[int] = Field(None, description="Optional plan ID for tracking")
-    # feedback_id: Optional[int] = Field(None, description="Optional feedback ID for tracking")
-    # refine_id: Optional[int] = Field(None, description="Optional refinement ID for tracking")
+
+
+# ------------------------------------------
+# ✅ 5. Plan: Central orchestrator containing all execution logic
+# ------------------------------------------
+class PlanStructure(BaseModel):
+    goal_type: GoalTypeEnum = Field(..., description="Type of goal: habit, project, or hybrid")
+    start_date: date = Field(..., description="Start date of the plan")
+    end_date: Optional[date] = Field(None, description="End date or deadline of the plan")
+    progress: int = Field(0, ge=0, le=100, description="Overall progress score (0–100%)")
     
-    # Habit-specific logic
-    recurrence_cycle: Optional[str] = Field(None, description="e.g., daily, weekly, monthly")
-    goal_frequency_per_cycle: Optional[int] = Field(None, description="How many times per cycle the goal should be achieved")
-    goal_recurrence_count: Optional[int] = Field(None, description="How many cycles should be planned (e.g. 6 months)")
-    default_estimated_time_per_cycle: Optional[int] = Field(None, description="Optional default effort per goal instance")
+    # Habit-specific fields
+    recurrence_cycle: Optional[str] = Field(None, description="e.g., daily, weekly, monthly (for habit-based components)")
+    goal_frequency_per_cycle: Optional[int] = Field(None, description="How many times per cycle the goal should be achieved (for habit-based components)")
+    goal_recurrence_count: Optional[int] = Field(None, description="How many cycles should be planned, e.g. 6 months (for habit-based components)")
+    default_estimated_time_per_cycle: Optional[int] = Field(None, description="Optional default effort per goal instance (for habit-based components)")
     
-    # Structure
-    habit_cycles: Optional[List[HabitCyclePlan]] = Field(None, description="Defined only for habit goals")
-    tasks: Optional[List[TaskPlan]] = Field(None, description="Defined only for project goals")
+    # Plan structure - can have both for hybrid plans
+    habit_cycles: Optional[List[HabitCyclePlan]] = Field(None, description="Habit-based cycles (for habit or hybrid plans)")
+    tasks: Optional[List[TaskPlan]] = Field(None, description="Project-based tasks (for project or hybrid plans)")
+    
+    @property
+    def is_hybrid(self) -> bool:
+        """Check if this plan has both habit cycles and tasks"""
+        return bool(self.habit_cycles) and bool(self.tasks)
+    
+    @property
+    def plan_type_actual(self) -> str:
+        """Get the actual plan type based on content"""
+        has_habits = bool(self.habit_cycles)
+        has_tasks = bool(self.tasks)
+        
+        if has_habits and has_tasks:
+            return "hybrid"
+        elif has_habits:
+            return "habit"
+        elif has_tasks:
+            return "project"
+        else:
+            return "empty"
+    
+    @model_validator(mode='after')
+    def validate_structure(self):
+        """Validate that at least one structure type is provided"""
+        has_habits = bool(self.habit_cycles)
+        has_tasks = bool(self.tasks)
+        
+        if not has_habits and not has_tasks:
+            raise ValueError("Plan must have either habit_cycles, tasks, or both")
+        
+        return self
+    
+    # AI metadata
+    ai_model_used: Optional[str] = Field(None, description="AI model used to generate this plan")
+    ai_prompt_version: Optional[str] = Field(None, description="Version of the prompt used")
+    generated_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="When the plan was generated")
+    
+    # Refinement tracking
+    refinement_round: Optional[int] = Field(0, description="Round of refinement (0 for original)")
+    source_plan_id: Optional[int] = Field(None, description="ID of the plan this is refined from")
 
 
 # ------------------------------------------------
-# ✅ 5. Final generated plan wrapper (for parsing)
+# ✅ 6. Final generated plan wrapper (for parsing)
 # ------------------------------------------------
 class GeneratedPlan(BaseModel):
-    goal: GoalPlan = Field(..., description="The main goal being planned")
+    goal: GoalPlan = Field(..., description="The goal being planned (title & description only)")
+    plan: PlanStructure = Field(..., description="The execution plan with all implementation details")
     plan_id: Optional[int] = Field(None, description="Optional ID of the generated plan")
-    refinement_round: Optional[int] = Field(None, description="Optional refinement round number")
-    source_plan_id: Optional[int] = Field(None, description="Optional ID of the plan this is refined from")
+    user_id: Optional[int] = Field(None, description="ID of the user who owns this plan")
     
 # ------------------------------------------------
-# ✅ 6. Plan feedback request schema. This is used to submit feedback on a generated plan.
+# ✅ 7. Plan feedback request schema. This is used to submit feedback on a generated plan.
 # ------------------------------------------------
 
 class PlanFeedbackRequest(BaseModel):

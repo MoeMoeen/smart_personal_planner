@@ -14,6 +14,9 @@ from app.models import GoalType
 from typing import Optional
 from datetime import date
 from app.models import GoalType
+from app.main import logging
+
+logger = logging.getLogger(__name__)
 
 def validate_plan_semantics(plan: GeneratedPlan) -> None:
     """
@@ -59,6 +62,15 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
     Save the AI-generated plan into the database.
     Dynamically chooses the goal model (HabitGoal or ProjectGoal) based on goal_type.
     """
+    if source_plan_id is not None:
+        # then this is a refined plan. So we should not create a new goal, but rather use the existing one
+        source_plan = db.query(Plan).filter(Plan.id == source_plan_id).first()
+        if not source_plan:
+            raise ValueError(f"Source plan with ID {source_plan_id} not found")
+        goal = source_plan.goal # Then we have to use the source plan's goal to save the new refined plan
+    else:
+        goal_data = plan.goal
+
     goal_data = plan.goal
 
     # ✅ Enforce semantic correctness before DB write
@@ -81,7 +93,7 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
                 raise ValueError(f"Missing required field for habit goal: '{field}'")
 
     # ✅ Create the appropriate model based on goal_type
-    if goal_type == "habit":
+    if goal_type == GoalType.habit:
         db_goal = HabitGoal(
             title=goal_data.title,
             description=goal_data.description,
@@ -199,11 +211,15 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
 
 # ------------------------------------------------
 
-def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text: str, suggested_changes: str):
+def generate_refined_plan_from_feedback(
+        db: Session,
+        plan_id: int,
+        feedback_text: str,
+        suggested_changes: str) -> dict:
     """Generate a refined plan based on user feedback using LangChain."""
     try:
-        print(f"Starting refinement for plan {plan_id}")
-        
+        logger.info(f"Starting refinement for plan {plan_id}")
+
         # Load the plan with proper relationships and handle polymorphic loading
         plan = db.query(Plan).options(
             selectinload(Plan.goal),
@@ -214,15 +230,14 @@ def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text
         if not plan:
             raise ValueError(f"Plan with ID {plan_id} not found")
         
-        print(f"Plan loaded: {plan}")
-        
+        logger.info(f"Plan loaded: {plan.id}, Goal ID: {plan.goal_id}, User ID: {plan.user_id}")
+
         # Load the goal with explicit type handling for polymorphic inheritance
         goal = plan.goal
         if not goal:
             raise ValueError(f"Goal not found for plan {plan_id}")
-            
-        print(f"Goal loaded: {goal}")
-        print(f"Goal type: {type(goal)}")
+
+        logger.info(f"Goal loaded: {goal.id}, Type: {goal.goal_type}, User ID: {goal.user_id}")
         
         # Format existing tasks
         formatted_tasks = []
@@ -239,7 +254,7 @@ def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text
         # Add recurrence cycles if applicable, i.e., if the goal is a habit
         formatted_cycles = ""
         recurrence_info = ""
-        if str(goal.goal_type) == "habit":
+        if str(goal.goal_type) == GoalType.habit:
             # Cast to HabitGoal to access habit-specific attributes
             habit_goal = db.query(HabitGoal).filter(HabitGoal.id == goal.id).first()
             if habit_goal:
@@ -263,6 +278,10 @@ def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text
         previous_plan_content = f"""
         --- Previous Plan (Structured) ---
         Goal Title: {goal.title} ({goal.goal_type.capitalize()})
+        Goal Type: {goal.goal_type.capitalize()}
+        Goal ID: {goal.id}
+        User ID: {goal.user_id}
+        Previous Plan ID: {plan.id}
         Goal Description: {goal.description or 'No description provided.'}
         Start Date: {goal.start_date or 'Not specified'}
         End Date: {getattr(goal, 'end_date', None) or 'Not specified'}  
@@ -279,10 +298,9 @@ def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text
         """.strip()
 
         # Prepare the refinement prompt input
-        
-        print(f"About to call refine_plan_chain with feedback: {feedback_text}")
-        print(f"Suggested changes: {suggested_changes}")
-        
+
+        logger.info(f"Refining plan {plan_id} with feedback: {feedback_text} and suggested changes: {suggested_changes}")
+
         # # Call the LangChain refinement chain
         # result = refine_plan_chain.invoke({
         #     "goal_description": goal.description or goal.title,
@@ -315,35 +333,78 @@ def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text
         # ✅ 4. Join all into a single block
         prior_feedback_combined = "\n".join(prior_feedback_texts)
 
-        print("------ [DEBUG] Prior Feedback Combined ------")
-        print(prior_feedback_combined)
-        print("------ [DEBUG] End of Prior Feedback Combined ------")
+        logger.info("------ [DEBUG] Prior Feedback Combined ------")
+        logger.info(prior_feedback_combined)
+        logger.info("------ [DEBUG] End of Prior Feedback Combined ------")
 
         # ✅ 5. Use robust refinement function that handles incomplete outputs gracefully
         from app.ai.goal_parser_chain import robust_refine_plan
         
         # Prepare original plan data for field completion
-        original_plan_data = None
-        if goal.goal_type == "habit":
+        source_plan_data = None
+        if goal.goal_type == GoalType.habit:
             habit_goal = db.query(HabitGoal).filter(HabitGoal.id == goal.id).first()
             if habit_goal:
-                original_plan_data = {
+                source_plan_data = {
+                    "goal_id": goal.id,
+                    "habit_id": habit_goal.id,
+                    "title": habit_goal.title,
                     "goal_recurrence_count": habit_goal.goal_recurrence_count,
                     "goal_frequency_per_cycle": habit_goal.goal_frequency_per_cycle,
                     "recurrence_cycle": habit_goal.recurrence_cycle,
-                    "default_estimated_time_per_cycle": habit_goal.default_estimated_time_per_cycle
+                    "default_estimated_time_per_cycle": habit_goal.default_estimated_time_per_cycle,
+                    "habit_cycles": [
+                        {
+                            "cycle_label": cycle.cycle_label,
+                            "start_date": cycle.start_date,
+                            "end_date": cycle.end_date,
+                            "progress": cycle.progress,
+                            "occurrences": [
+                                {
+                                    "occurrence_order": occ.occurrence_order,
+                                    "estimated_effort": occ.estimated_effort,
+                                    "tasks": [
+                                        {
+                                            "title": task.title,
+                                            "due_date": task.due_date,
+                                            "estimated_time": task.estimated_time,
+                                            "completed": task.completed
+                                        } for task in occ.tasks
+                                    ]
+                                } for occ in cycle.occurrences
+                            ]
+                        } for cycle in habit_goal.habit_cycles
+                    ]
+                }
+        elif goal.goal_type == GoalType.project:
+            project_goal = db.query(ProjectGoal).filter(ProjectGoal.id == goal.id).first()
+            if project_goal:
+                source_plan_data = {
+                    "goal_id": goal.id,
+                    "project_id": project_goal.id,
+                    "title": project_goal.title,
+                    "end_date": project_goal.end_date,
+                    "tasks": [
+                        {
+                            "title": task.title,
+                            "due_date": task.due_date,
+                            "estimated_time": task.estimated_time,
+                            "completed": task.completed
+                        } for task in project_goal.tasks
+                    ]
                 }
         
         try:
             # Try robust refinement first
             refined_plan_data = robust_refine_plan(
                 goal_description=goal.description or goal.title,
-                previous_plan=previous_plan_content,
+                previous_plan_content=previous_plan_content,
                 prior_feedback=prior_feedback_combined,
-                original_plan_data=original_plan_data
+                source_plan_data=source_plan_data
             )
             result = {"plan": refined_plan_data}
-            
+            logger.info("🔄 Robust refinement successful: %s", refined_plan_data)
+
         except Exception as e:
             print(f"Robust refinement failed, falling back to original chain: {e}")
             # Fallback to original chain
@@ -369,16 +430,16 @@ def generate_refined_plan_from_feedback(db: Session, plan_id: int, feedback_text
             user_id_val = cast(int, plan.user_id)  
             plan_id_val = cast(int, plan.id)
             
-            refined_plan = save_generated_plan(
+            refined_plan_saved = save_generated_plan(
                 plan=refined_plan_data,
                 db=db,
                 user_id=user_id_val,
                 source_plan_id=plan_id_val
             )
             
-            print(f"Refined plan saved with ID: {refined_plan.id}")
+            print(f"Refined plan saved with ID: {refined_plan_saved.id}")
             # Return both the saved plan and the original GeneratedPlan
-            return {"saved_plan": refined_plan, "generated_plan": refined_plan_data}
+            return {"saved_plan": refined_plan_saved, "generated_plan": refined_plan_data}
         else:
             print(f"Unexpected result structure. Result: {result}")
             print(f"Result keys: {result.keys() if isinstance(result, dict) else 'Not a dict'}")

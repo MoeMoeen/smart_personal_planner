@@ -24,7 +24,7 @@ class RobustParser:
                         llm_output: str, 
                         target_model: Type[T], 
                         original_prompt_context: Optional[str] = None,
-                        previous_plan_data: Optional[Dict[str, Any]] = None) -> T:
+                        source_plan_data: Optional[Dict[str, Any]] = None) -> T:
         """
         Parse LLM output with automatic retry for missing fields.
         
@@ -65,10 +65,10 @@ class RobustParser:
                         validation_error=e,
                         target_model=target_model,
                         original_context=original_prompt_context,
-                        previous_plan=previous_plan_data
+                        source_plan=source_plan_data
                     )
                 else:
-                    logger.error(f"❌ ROBUST PARSER: All retries exhausted")
+                    logger.error("❌ ROBUST PARSER: All retries exhausted")
                     raise e
             except Exception as e:
                 logger.error(f"❌ ROBUST PARSER: Unexpected error - {e}")
@@ -107,7 +107,7 @@ class RobustParser:
                            validation_error: ValidationError,
                            target_model: Type[T],
                            original_context: Optional[str] = None,
-                           previous_plan: Optional[Dict[str, Any]] = None) -> str:
+                           source_plan: Optional[Dict[str, Any]] = None) -> str:
         """
         Generate a fix for missing fields by prompting the LLM.
         """
@@ -127,7 +127,7 @@ class RobustParser:
             missing_fields=missing_fields,
             target_model=target_model,
             original_context=original_context,
-            previous_plan=previous_plan
+            source_plan=source_plan
         )
         
         # Get the fixed output from LLM
@@ -145,7 +145,7 @@ class RobustParser:
         elif not isinstance(fixed_output, str):
             fixed_output = str(fixed_output)
         
-        logger.info(f"🔄 ROBUST PARSER: Generated fix attempt")
+        logger.info("🔄 ROBUST PARSER: Generated fix attempt")
         return fixed_output
     
     def _create_fix_prompt(self, 
@@ -153,7 +153,7 @@ class RobustParser:
                           missing_fields: list,
                           target_model: Type[T],
                           original_context: Optional[str] = None,
-                          previous_plan: Optional[Dict[str, Any]] = None) -> str:
+                          source_plan: Optional[Dict[str, Any]] = None) -> str:
         """Create a prompt to fix missing fields."""
         
         prompt_parts = [
@@ -176,11 +176,11 @@ class RobustParser:
             ])
         
         # Add previous plan data for reference
-        if previous_plan:
+        if source_plan:
             prompt_parts.extend([
                 "",
                 "Previous plan data for reference:",
-                json.dumps(previous_plan, indent=2, default=str)
+                json.dumps(source_plan, indent=2, default=str)
             ])
         
         # Add specific instructions for common missing fields
@@ -194,6 +194,27 @@ class RobustParser:
             prompt_parts.extend([
                 "",
                 "For default_estimated_time_per_cycle: Use the total estimated time per cycle in minutes"
+            ])
+        
+        # Add instructions for Plan-centric structure
+        if any(field in missing_fields for field in ['goal', 'plan']):
+            prompt_parts.extend([
+                "",
+                "CRITICAL ARCHITECTURE: The JSON must have TWO top-level sections:",
+                "- 'goal': Contains only title, description, user_id",
+                "- 'plan': Contains all execution details (goal_type, dates, tasks, habit_cycles, etc.)"
+            ])
+        
+        if 'goal_type' in missing_fields:
+            prompt_parts.extend([
+                "",
+                "For goal_type: Use 'habit', 'project', or 'hybrid' based on the goal's nature"
+            ])
+        
+        if any(field in missing_fields for field in ['habit_cycles', 'tasks']):
+            prompt_parts.extend([
+                "",
+                "For structure: habit goals need habit_cycles, project goals need tasks, hybrid goals need both"
             ])
         
         prompt_parts.extend([

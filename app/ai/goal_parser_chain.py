@@ -6,14 +6,13 @@
 
 from langchain_openai import ChatOpenAI                     # ✅ Interface to OpenAI chat models
 from langchain.prompts import ChatPromptTemplate            # ✅ Helps define reusable prompt structure
-from langchain.output_parsers import PydanticOutputParser, OutputFixingParser   # ✅ Enforces Pydantic schema on LLM output
+from langchain.output_parsers import PydanticOutputParser   # ✅ Enforces Pydantic schema on LLM output
 from app.ai.schemas import GeneratedPlan                    # ✅ Import your structured schema
 import os                                                   # ✅ For environment variable access     
 from pydantic import SecretStr
 from decouple import config
 from langchain.schema.runnable import RunnableMap
 from datetime import date
-from datetime import datetime, timezone  # For handling timestamps in feedback
 from typing import Optional, Dict, Any                      # ✅ For type hints
 
 
@@ -70,27 +69,48 @@ prompt_template = ChatPromptTemplate.from_messages([
     - Follow the exact JSON structure defined by this format:
     {format_instructions}
 
-    The plan must include:
-    ✅ Top-level goal metadata:
-    - title
-    - description (REQUIRED: provide a detailed description of the goal)
-    - goal_type ("habit" or "project")
-    - start_date (must be today or later)
-    - progress (0–100)
+    🏗️ **CRITICAL ARCHITECTURE**: The output has TWO separate sections:
+    1. **goal**: Lightweight metadata container (title, description only)
+    2. **plan**: Central orchestrator with ALL execution details
+
+    ✅ **Goal Section** (lightweight metadata):
+    - title: Clear, concise goal name
+    - description: Detailed explanation of what the user wants to achieve
+    - user_id: (optional, will be set by system)
+
+    ✅ **Plan Section** (all execution details):
+    - goal_type: "habit", "project", or "hybrid"
+    - start_date: Must be today or later
+    - end_date: Required for projects, optional for habits
+    - progress: 0 (new plan)
+    - All habit-specific fields (if applicable)
+    - Structure: habit_cycles and/or tasks
 
     🎯 **Goal Type Classification Rules:**
     - **"project"**: Use for one-time achievements with a clear end date
       Examples: "read 12 books this year", "learn a skill", "complete a course", "organize my home"
     - **"habit"**: Use for ongoing, repetitive behaviors without a clear end
       Examples: "exercise 3 times per week", "meditate daily", "call mom weekly"
+    - **"hybrid"**: Use for goals that benefit from both structured tasks AND recurring habits
+      Examples: "learn Python" (daily coding habit + standalone non-repeating tasks), "get fit" (workout routine + race training)
 
-    🔁 If goal_type is **"habit"**, you MUST include ALL of these fields:
+    🔁 If goal_type is **"habit"**, the PLAN must include ALL of these fields:
     - goal_frequency_per_cycle (REQUIRED: e.g., 2 times per month, 3 times per week)
     - goal_recurrence_count (REQUIRED: e.g., 6 months, 12 weeks - NEVER leave this null)
     - recurrence_cycle (REQUIRED: e.g., "daily", "weekly", "monthly")
     - default_estimated_time_per_cycle (REQUIRED: e.g., 60 minutes per session)
+    - habit_cycles: Array of cycles with occurrences and tasks
     
-    📝 **Habit Parsing Examples:**
+    📦 If goal_type is **"project"**, the PLAN must include:
+    - end_date (at least 2 weeks after start_date)  
+    - tasks: Array of tasks directly in the plan
+    
+    🔄 If goal_type is **"hybrid"**, the PLAN must include:
+    - All habit fields (recurrence_cycle, goal_frequency_per_cycle, etc.)
+    - Both habit_cycles AND tasks arrays
+    - This allows for daily habits + milestone and/or standalone non-repeating tasks
+
+     **Habit Parsing Examples:**
     - "every other day" → goal_frequency_per_cycle: 15, recurrence_cycle: "monthly", goal_recurrence_count: 6
     - "3 times per week" → goal_frequency_per_cycle: 3, recurrence_cycle: "weekly", goal_recurrence_count: 12
     - "daily" → goal_frequency_per_cycle: 1, recurrence_cycle: "daily", goal_recurrence_count: 90
@@ -105,14 +125,31 @@ prompt_template = ChatPromptTemplate.from_messages([
                 - due_date
                 - estimated_time
 
-    📦 If goal_type is **"project"**, you MUST include:
-    - end_date (at least 2 weeks after start_date)
-    - tasks (directly under goal)
-
     ⚠️ Temporal Constraints:
     - All dates must be in the future
     - Habit end_date is optional if ongoing
     - Project end_date is required and ≥ 2 weeks after start_date
+
+    🎨 **Example Output Structure:**
+    ```json
+    {
+      "goal": {
+        "title": "Learn Python Programming",
+        "description": "Master Python fundamentals and build real projects"
+      },
+      "plan": {
+        "goal_type": "hybrid",
+        "start_date": "2025-08-06",
+        "end_date": "2025-12-31",
+        "progress": 0,
+        "recurrence_cycle": "daily",
+        "goal_frequency_per_cycle": 1,
+        "goal_recurrence_count": 147,
+        "habit_cycles": [...],
+        "tasks": [...]
+      }
+    }
+    ```
 
     Do NOT include motivational or extra explanation text. Only return valid structured data.
 
@@ -131,13 +168,18 @@ refinement_prompt_template = ChatPromptTemplate.from_messages([
      You are a smart AI personal planner who revises structured goal plans based on user feedback.
      Today's date is {today}. Make sure all output respects today's date.
      
+     🏗️ **CRITICAL ARCHITECTURE**: The output has TWO separate sections:
+     1. **goal**: Lightweight metadata (title, description only)
+     2. **plan**: All execution details (goal_type, dates, tasks, cycles, etc.)
+     
      CRITICAL: When generating refined plans, you MUST include ALL required fields:
-     - For habit goals: goal_recurrence_count (NEVER NULL), goal_frequency_per_cycle, recurrence_cycle, default_estimated_time_per_cycle
-     - For project goals: end_date, tasks with due_date and estimated_time
+     - For habit plans: goal_recurrence_count (NEVER NULL), goal_frequency_per_cycle, recurrence_cycle, default_estimated_time_per_cycle
+     - For project plans: end_date, tasks with due_date and estimated_time
+     - For hybrid plans: both habit_cycles AND tasks arrays
      - Always include complete habit_cycles with occurrences and tasks
      - Never leave required fields as null or missing
      
-     ⚠️  VALIDATION RULE: If goal_type is "habit", then goal_recurrence_count MUST be a positive integer (e.g., 6, 12, 24)
+     ⚠️  VALIDATION RULE: If goal_type is "habit" or "hybrid", then goal_recurrence_count MUST be a positive integer (e.g., 6, 12, 24)
      """
     ),
     ("user",
@@ -150,17 +192,24 @@ refinement_prompt_template = ChatPromptTemplate.from_messages([
      - Improve the previously generated plan accordingly
      - ENSURE ALL REQUIRED FIELDS ARE INCLUDED (especially goal_recurrence_count for habits)
 
+     🏗️ **REMEMBER**: Output has TWO sections:
+     1. **goal**: Only title and description (keep these unless feedback asks to change them)
+     2. **plan**: All execution details (this is where most changes will go)
+
      Strictly follow these output rules:
      - All dates must be in the future (not before today)
-     - For project goals:
+     - For project plans:
          - Start date must be today or later
          - End date must be at least 2 weeks after start date
-     - For habit goals:
+     - For habit plans:
          - MUST include goal_recurrence_count (number of cycles to repeat)
          - MUST include goal_frequency_per_cycle (how many times per cycle)
          - MUST include recurrence_cycle (daily/weekly/monthly)
          - MUST include default_estimated_time_per_cycle
          - End date is optional (may be recurring forever)
+     - For hybrid plans:
+         - Include all habit fields AND project tasks
+         - Both habit_cycles and tasks arrays should be populated
      - Inside each cycle or plan:
          - Add 2–4 detailed tasks per occurrence
          - Include one main task and one supporting/preparation task
@@ -219,8 +268,8 @@ refine_plan_chain = RunnableMap({
 })
 
 # ✅ NEW: Robust refinement function that handles incomplete outputs gracefully
-def robust_refine_plan(goal_description: str, previous_plan: str, prior_feedback: str, 
-                      original_plan_data: Optional[Dict[str, Any]] = None) -> GeneratedPlan:
+def robust_refine_plan(goal_description: str, previous_plan_content: str, prior_feedback: str, 
+                      source_plan_data: Optional[Dict[str, Any]] = None) -> GeneratedPlan:
     """
     Enhanced refinement function with robust parsing that handles incomplete LLM outputs.
     
@@ -228,8 +277,8 @@ def robust_refine_plan(goal_description: str, previous_plan: str, prior_feedback
         goal_description: Original goal description
         previous_plan: Formatted previous plan content  
         prior_feedback: Combined feedback from all previous iterations
-        original_plan_data: Original plan data for field completion
-        
+        source_plan_data: Original plan data for field completion
+
     Returns:
         GeneratedPlan: Validated and complete plan
     """
@@ -237,13 +286,10 @@ def robust_refine_plan(goal_description: str, previous_plan: str, prior_feedback
         # Import here to avoid circular imports
         from app.ai.robust_parser import RobustParser
         
-        # Initialize robust parser
-        robust_parser = RobustParser(llm=llm, max_retries=3)
-        
         # Generate initial LLM output using the refinement prompt
         messages = refinement_prompt_template.format_messages(
             goal_description=goal_description,
-            previous_plan=previous_plan,
+            previous_plan=previous_plan_content,
             prior_feedback=prior_feedback
         )
         
@@ -256,6 +302,9 @@ def robust_refine_plan(goal_description: str, previous_plan: str, prior_feedback
         elif not isinstance(llm_output, str):
             llm_output = str(llm_output)
         
+        # Initialize robust parser
+        robust_parser = RobustParser(llm=llm, max_retries=3)
+
         # Use robust parser to handle any missing fields
         original_context = f"Goal: {goal_description}\nFeedback: {prior_feedback}"
         
@@ -263,7 +312,7 @@ def robust_refine_plan(goal_description: str, previous_plan: str, prior_feedback
             llm_output=llm_output,
             target_model=GeneratedPlan,
             original_prompt_context=original_context,
-            previous_plan_data=original_plan_data
+            source_plan_data=source_plan_data
         )
         
         return result
@@ -277,7 +326,7 @@ def robust_refine_plan(goal_description: str, previous_plan: str, prior_feedback
         # Use original chain as fallback
         result = refine_plan_chain.invoke({
             "goal_description": goal_description,
-            "previous_plan": previous_plan, 
+            "previous_plan": previous_plan_content, 
             "prior_feedback": prior_feedback
         })
         

@@ -12,6 +12,7 @@ from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.orm import relationship, declarative_base
 import enum
 from sqlalchemy.sql import func
+from typing import Optional
 
 
 # Step 1: Create the SQLAlchemy base for all models
@@ -21,6 +22,7 @@ Base = declarative_base()
 class GoalType(str, enum.Enum):
     project = "project"
     habit = "habit"
+    hybrid = "hybrid"
 
 # === BASE GOAL (SHARED TABLE) ===
 
@@ -31,144 +33,62 @@ class Goal(Base):
     # Primary key ID
     id = Column(Integer, primary_key=True, index=True)
 
-    start_date = Column(Date, nullable=False)  # shared by both projects and habits
-
-    # Shared fields
+    # ✅ LIGHTWEIGHT METADATA ONLY (execution details moved to Plan)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
-    goal_type = Column(SQLAlchemyEnum(GoalType), nullable=False)
-
-    # Shared progress field (0–100), derived from tasks or cycle completion
-    progress = Column(Integer, default=0)
-
-    # Shared relationship: all goal types can have many tasks
-    tasks = relationship("Task", back_populates="goal", cascade="all, delete-orphan")
-
+    
     # Foreign key to link to the user who owns this goal
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Link to user
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # ✅ RELATIONSHIPS (execution entities now belong to Plan)
     # Relationship back to the user
     user = relationship("User", back_populates="goals")
 
-    # Relationship to plans
+    # Relationship to plans (this is where all execution logic lives)
     plans = relationship("Plan", back_populates="goal", uselist=True, cascade="all, delete-orphan")
 
-    # Relationship to feedback
+    # Relationship to feedback (through plans)
     feedback = relationship("Feedback", back_populates="goal", cascade="all, delete-orphan")
 
+    # Note: tasks, cycles, etc. now belong to Plan, not Goal
 
-    # Polymorphism setup
-    __mapper_args__ = {
-        "polymorphic_on": goal_type,
-        "polymorphic_identity": "goal",
-    }
-
-    def __repr__(self):
-        try:
-            title = self.title
-        except (KeyError, AttributeError):
-            title = 'N/A'
-            
-        try:
-            start_date = self.start_date
-        except (KeyError, AttributeError):
-            start_date = 'N/A'
-            
-        try:
-            goal_type = self.goal_type
-        except (KeyError, AttributeError):
-            goal_type = 'N/A'
-            
-        return f"<Goal(id={self.id}, title={title}, start_date={start_date}, goal_type={goal_type})>"
-
-# === PROJECT GOAL (SUBCLASS) ===
-
-# Step 4: Define subclass for one-time project goals
-class ProjectGoal(Goal):
-    __tablename__ = "project_goals"
-
-    id = Column(Integer, ForeignKey("goals.id"), primary_key=True)  # Inherits from Goal
-
-    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Link to user - already inherited from Goal
-
-    # Projects require explicit end dates
-    end_date = Column(Date, nullable=False)
-
-    __mapper_args__ = {
-        "polymorphic_identity": "project",
-    }
-
-    def __repr__(self):
-        try:
-            end_date = self.end_date
-        except (KeyError, AttributeError):
-            end_date = 'N/A'
+    # ✅ DERIVED PROPERTIES for semantic access
+    @property
+    def primary_goal_type(self) -> Optional['GoalType']:
+        """Get the goal_type from the most recent approved plan, or latest plan if none approved"""
+        if not self.plans:
+            return None
         
-        try:
-            title = self.title
-        except (KeyError, AttributeError):
-            title = 'N/A'
-            
-        try:
-            start_date = self.start_date
-        except (KeyError, AttributeError):
-            start_date = 'N/A'
-            
-        return f"<ProjectGoal(id={self.id}, title={title}, start_date={start_date}, end_date={end_date})>"
-
-# === HABIT GOAL (SUBCLASS) ===
-# Note: Habit goals are recurring and can have multiple cycles
-# Step 5: Define subclass for recurring habit goals
-class HabitGoal(Goal):
-    __tablename__ = "habit_goals"
-
-    id = Column(Integer, ForeignKey("goals.id"), primary_key=True)  # Inherits from Goal
-
-    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Link to user
+        # First try to get from approved plans
+        approved_plans = [p for p in self.plans if p.is_approved]
+        if approved_plans:
+            # Return the most recent approved plan's type
+            return max(approved_plans, key=lambda p: p.created_at).goal_type
+        
+        # Fallback to most recent plan if no approved plans
+        return max(self.plans, key=lambda p: p.created_at).goal_type
     
-    end_date = Column(Date, nullable=True)  # Optional for open-ended habits
-
-    # Defines how many cycles to complete the habit goal (e.g., 6 months)
-    # This is optional and can be used to limit the habit goal duration
-    # If None, the habit can continue indefinitely until manually stopped
-    goal_recurrence_count = Column(Integer, nullable=True)     # E.g. 6 months
-
-    # Defines how often to complete the goal per cycle (e.g., 2 times per month)
-    goal_frequency_per_cycle = Column(Integer, nullable=False)
-
-    # Cycle type: daily, weekly, monthly, quarterly, annual, etc.
-    recurrence_cycle = Column(String, nullable=False)
-
-    # Relationship to individual cycles (e.g. July 2025, Aug 2025, etc.). All habits have cycles.
-    cycles = relationship("HabitCycle", back_populates="habit", cascade="all, delete-orphan")
-
-    default_estimated_time_per_cycle = Column(Integer, nullable=True, default=1)  # Default hours per cycle
-
-
-    # Polymorphic identity for habit goals
-    __mapper_args__ = {
-        "polymorphic_identity": "habit",
-    }
+    @property 
+    def is_mixed_type(self) -> bool:
+        """Check if this goal has plans of different goal_types"""
+        if not self.plans:
+            return False
+        plan_types = {p.goal_type for p in self.plans}
+        return len(plan_types) > 1
+    
+    @property
+    def plan_count_by_type(self) -> dict:
+        """Count plans by goal_type"""
+        from collections import Counter
+        return dict(Counter(p.goal_type for p in self.plans))
 
     def __repr__(self):
-        try:
-            title = self.title
-        except (KeyError, AttributeError):
-            title = 'N/A'
-            
-        try:
-            start_date = self.start_date
-        except (KeyError, AttributeError):
-            start_date = 'N/A'
-            
-        try:
-            recurrence_cycle = self.recurrence_cycle
-        except (KeyError, AttributeError):
-            recurrence_cycle = 'N/A'
-            
-        return f"<HabitGoal(id={self.id}, title={title}, start_date={start_date}, recurrence_cycle={recurrence_cycle})>"
+        return f"<Goal(id={self.id}, title='{self.title}', user_id={self.user_id})>"
 
-    
 # === HABIT CYCLE ===
 # Note: Each habit can have multiple cycles (e.g., every 1 month or every 1 week)
 # Step 6: Define HabitCycle model (e.g., one row per week or month)
@@ -177,14 +97,14 @@ class HabitCycle(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Foreign key to link to parent HabitGoal
-    habit_id = Column(Integer, ForeignKey("habit_goals.id"))
+    # Foreign key to link to parent Goal (not HabitGoal anymore)
+    goal_id = Column(Integer, ForeignKey("goals.id"))
 
     # Foreign key to link to the user
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    # Foreign key to link to the plan
-    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)
+    # Foreign key to link to the plan (where the habit execution logic lives)
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)
 
     # Label to identify the cycle (e.g. '2025-07' for monthly)
     cycle_label = Column(String, nullable=False)
@@ -196,13 +116,13 @@ class HabitCycle(Base):
     # Progress score per cycle (0–100), updated as tasks are completed
     progress = Column(Integer, default=0)
 
-    # Reverse link to the habit
-    habit = relationship("HabitGoal", back_populates="cycles")
+    # Reverse link to the goal (now generic Goal, not HabitGoal)
+    goal = relationship("Goal", uselist=False)
 
     # Each cycle can have multiple occurrences (e.g., 1st, 2nd, etc.)
     occurrences = relationship("GoalOccurrence", back_populates="cycle", cascade="all, delete-orphan")
 
-    # Relationship back to the plan
+    # Relationship back to the plan (where habit logic lives)
     plan = relationship("Plan", back_populates="cycles", uselist=False)
 
     # Relationship back to the user
@@ -213,7 +133,7 @@ class HabitCycle(Base):
 
 # === TASK ===
 
-# Step 7: Define Task model (attached to either habit or project goals)
+# Step 7: Define Task model (now belongs to Plan, not directly to Goal)
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -222,26 +142,29 @@ class Task(Base):
     # Foreign key to user
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    # Foreign key to link to the plan
-    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)
+    # Foreign key to link to the plan (REQUIRED - tasks belong to plans now)
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)
     
     # Task details
     title = Column(String, nullable=False)
     due_date = Column(Date, nullable=True)
-    estimated_time = Column(Integer, nullable=True)  # Hours estimate
+    estimated_time = Column(Integer, nullable=True)  # Minutes estimate
     completed = Column(Boolean, default=False)
 
-    # Link to the parent goal (can be either project or habit)
+    # Link to the parent goal (via plan relationship - indirect)
     goal_id = Column(Integer, ForeignKey("goals.id"))
 
-    # Optional link to a specific cycle (used for habits only)
+    # Optional link to a specific cycle (used for habit plans only)
     cycle_id = Column(Integer, ForeignKey("habit_cycles.id"), nullable=True)
 
-    # Option link to a specific occurrence (used for habits only)
+    # Optional link to a specific occurrence (used for habit plans only)
     occurrence_id = Column(Integer, ForeignKey("goal_occurrences.id"), nullable=True)
 
-    # Relationship back to goal (project or habit)
-    goal = relationship("Goal", back_populates="tasks")
+    # ✅ PRIMARY RELATIONSHIP: Task belongs to Plan
+    plan = relationship("Plan", back_populates="tasks", uselist=False)
+
+    # Relationship back to goal (indirect via plan)
+    goal = relationship("Goal", uselist=False)
 
     # Relationship back to cycle (if applicable)
     occurrence = relationship("GoalOccurrence", back_populates="tasks")
@@ -249,11 +172,8 @@ class Task(Base):
     # Relationship back to user
     user = relationship("User", back_populates="tasks")
 
-    # Relaitonship back to plan
-    plan = relationship("Plan", back_populates="tasks", uselist=False)
-
     def __repr__(self):
-        return f"<Task(id={self.id}, title={self.title}, due_date={self.due_date}, completed={self.completed})>"
+        return f"<Task(id={self.id}, title={self.title}, plan_id={self.plan_id}, due_date={self.due_date}, completed={self.completed})>"
 
 # === GOAL OCCURRENCE PER CYCLE ===
 
@@ -268,8 +188,8 @@ class GoalOccurrence(Base):
     # Foreign key to link to a specific habit cycle
     cycle_id = Column(Integer, ForeignKey("habit_cycles.id"), nullable=False)
 
-    # Foreign key to link to the plan
-    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)
+    # Foreign key to link to the plan (REQUIRED - occurrences belong to plans)
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)
 
     # Order of occurrence within the cycle, e.g., 1st, 2nd, etc.
     occurrence_order = Column(Integer, nullable=False)
@@ -365,10 +285,25 @@ class Plan(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # New Metadata fields 
+    # ✅ EXECUTION FIELDS (moved from Goal models)
+    goal_type = Column(SQLAlchemyEnum(GoalType), nullable=False)  # 'project' or 'habit'
+    start_date = Column(Date, nullable=False)  # Plan execution start
+    end_date = Column(Date, nullable=False)    # Plan execution end (REQUIRED for all plans)
+    progress = Column(Integer, default=0)      # 0-100% completion
+
+    # ✅ HABIT-SPECIFIC FIELDS (moved from HabitGoal)
+    recurrence_cycle = Column(String, nullable=True)           # 'daily', 'weekly', 'monthly'
+    goal_frequency_per_cycle = Column(Integer, nullable=True)  # e.g., 3 times per week
+    goal_recurrence_count = Column(Integer, nullable=True)     # e.g., 12 weeks total
+    default_estimated_time_per_cycle = Column(Integer, nullable=True)  # minutes per cycle
+
+    # ✅ AI METADATA FIELDS
+    source = Column(String, default='AI', nullable=False)      # 'AI', 'manual', 'imported'
+    ai_version = Column(String, nullable=True)                 # '1.0', '1.1', '2.0'
     refinement_round = Column(Integer, default=0, nullable=True)  # Track refinement rounds. 0 for initial AI-generated plan
     source_plan_id = Column(Integer, ForeignKey("plans.id"), nullable=True)  # Link to the original/source plan if this is a refined version
 
+    # ✅ PLAN RELATIONSHIPS
     # Relationship to the source plan if this is a refined version
     source_plan = relationship("Plan", remote_side=[id], back_populates="refined_plans", uselist=False)
 
@@ -376,7 +311,7 @@ class Plan(Base):
     refined_plans = relationship("Plan", back_populates="source_plan", cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"<Plan(id={self.id}, goal_id={self.goal_id}, is_approved={self.is_approved}, user_id={self.user_id})>"
+        return f"<Plan(id={self.id}, goal_id={self.goal_id}, goal_type={self.goal_type}, is_approved={self.is_approved}, refinement_round={self.refinement_round}, user_id={self.user_id})>"
 
     
 class PlanFeedbackAction(str, enum.Enum):

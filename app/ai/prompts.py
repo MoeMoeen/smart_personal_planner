@@ -20,14 +20,24 @@ def get_plan_generation_prompt(format_instructions: str) -> list:
             - Follow the JSON structure defined by this format:
             {format_instructions}
 
+            🏗️ **IMPORTANT ARCHITECTURE**: The output has TWO separate parts:
+            1. **goal**: Contains only metadata (title, description, user_id)
+            2. **plan**: Contains ALL execution details (goal_type, dates, tasks, cycles, etc.)
+
             The plan must include:
-            - Top-level goal details (title, type, start date, recurrence info, etc.)
-            - Habit cycles if the goal is recurring (e.g. monthly)
-            - Inside each cycle, define N goal occurrences based on goal_frequency_per_cycle
+            - Plan details (goal_type, start_date, end_date, progress)
+            - If goal_type is "habit": habit_cycles with occurrences and tasks
+            - If goal_type is "project": tasks directly in the plan
+            - If goal_type is "hybrid": both habit_cycles AND tasks
             - Inside each occurrence, generate 2–4 detailed tasks:
                 - Include the main action (e.g. "Play football")
                 - Include at least 1 preparation or support task (e.g. commute, packing)
                 - Use realistic estimated_time and due_date fields
+
+            🎯 **Goal Type Classification Rules:**
+            - **"project"**: One-time achievements (e.g. "learn Python", "organize home")
+            - **"habit"**: Recurring behaviors (e.g. "exercise 3x/week", "meditate daily") 
+            - **"hybrid"**: Mixed approach (e.g. "learn Python" with daily coding + project milestones)
 
             ⚠️ Temporal Logic Requirements:
             - All dates must be in the future — never in the past.
