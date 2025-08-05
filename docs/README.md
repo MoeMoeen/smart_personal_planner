@@ -1731,7 +1731,32 @@ Telegram Message 2: "Show me details"
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 -------------------------------------------------------------------
+Project Folder Reorganization
 
+smart_personal_planner/
+├── 📁 app/                    # Core application (clean!)
+│   ├── agent/                # AI agents (no backups)
+│   ├── ai/                   # AI utilities  
+│   ├── crud/                 # Database operations
+│   ├── routers/              # API endpoints
+│   └── core files...         # models, schemas, etc.
+├── 📁 scripts/               # ALL utility scripts (NEW!)
+│   ├── start_telegram_bot.py     # Main bot launcher
+│   ├── simple_telegram_bot.py    # Simple bot
+│   ├── create_db.py              # DB setup
+│   ├── preflight_check.py        # Environment check
+│   └── reset_db_data.py          # DB reset
+├── 📁 backups/               # Backup files (NEW!)
+│   ├── simple_agent_backup.py    # Agent backup
+│   └── tools_backup.py           # Tools backup
+├── 📁 tests_curated/         # Selected tests ✅
+├── 📁 logs/                  # Log files ✅  
+├── 📁 docs/                  # Documentation ✅
+├── 📁 frontend/              # Web interface ✅
+└── 📁 alembic/              # DB migrations ✅
+
+
+-------------------------------------------------------------------
 Issues:
 
 🎯 Issue 1: State Isolation
