@@ -32,7 +32,7 @@ class RobustParser:
             llm_output: The raw output from the LLM
             target_model: The Pydantic model to parse into
             original_prompt_context: Original context for retry prompts
-            previous_plan_data: Previous plan data to fill missing fields from
+            source_plan_data: Previous plan data to fill missing fields from
             
         Returns:
             Validated Pydantic model instance
@@ -40,6 +40,9 @@ class RobustParser:
         Raises:
             ValidationError: If parsing fails after all retries
         """
+        
+        failed_fields_history = set()  # Track fields that have failed before
+        last_output = llm_output  # Track output changes
         
         for attempt in range(self.max_retries + 1):
             try:
@@ -59,13 +62,31 @@ class RobustParser:
                 logger.warning(f"⚠️ ROBUST PARSER: Validation failed - {e}")
                 
                 if attempt < self.max_retries:
+                    # Extract current missing fields
+                    current_missing_fields = set()
+                    for error in e.errors():
+                        if error['type'] == 'missing':
+                            field_name = error['loc'][0] if error['loc'] else 'unknown'
+                            current_missing_fields.add(field_name)
+                    
+                    # Check if we're stuck on the same fields
+                    stuck_fields = current_missing_fields.intersection(failed_fields_history)
+                    if stuck_fields and llm_output == last_output:
+                        logger.warning(f"🔄 ROBUST PARSER: Stuck on fields {stuck_fields}, skipping retry")
+                        raise e
+                    
+                    # Update failed fields history
+                    failed_fields_history.update(current_missing_fields)
+                    last_output = llm_output
+                    
                     # Generate a fix prompt for missing fields
                     llm_output = self._fix_missing_fields(
                         llm_output=llm_output,
                         validation_error=e,
                         target_model=target_model,
                         original_context=original_prompt_context,
-                        source_plan=source_plan_data
+                        source_plan=source_plan_data,
+                        failed_before=failed_fields_history
                     )
                 else:
                     logger.error("❌ ROBUST PARSER: All retries exhausted")
@@ -107,7 +128,8 @@ class RobustParser:
                            validation_error: ValidationError,
                            target_model: Type[T],
                            original_context: Optional[str] = None,
-                           source_plan: Optional[Dict[str, Any]] = None) -> str:
+                           source_plan: Optional[Dict[str, Any]] = None,
+                           failed_before: Optional[set] = None) -> str:
         """
         Generate a fix for missing fields by prompting the LLM.
         """
@@ -120,6 +142,10 @@ class RobustParser:
                 missing_fields.append(field_name)
         
         logger.info(f"🔧 ROBUST PARSER: Missing fields detected: {missing_fields}")
+        if failed_before:
+            previously_failed = [f for f in missing_fields if f in failed_before]
+            if previously_failed:
+                logger.warning(f"⚠️ ROBUST PARSER: Fields failed before: {previously_failed}")
         
         # Create a fix prompt
         fix_prompt = self._create_fix_prompt(
@@ -127,7 +153,8 @@ class RobustParser:
             missing_fields=missing_fields,
             target_model=target_model,
             original_context=original_context,
-            source_plan=source_plan
+            source_plan=source_plan,
+            failed_before=failed_before
         )
         
         # Get the fixed output from LLM
@@ -153,7 +180,8 @@ class RobustParser:
                           missing_fields: list,
                           target_model: Type[T],
                           original_context: Optional[str] = None,
-                          source_plan: Optional[Dict[str, Any]] = None) -> str:
+                          source_plan: Optional[Dict[str, Any]] = None,
+                          failed_before: Optional[set] = None) -> str:
         """Create a prompt to fix missing fields."""
         
         prompt_parts = [
@@ -166,6 +194,16 @@ class RobustParser:
             "2. Add the missing required fields with appropriate values",
             "3. Return only the complete, valid JSON"
         ]
+        
+        # Add warning for repeated failures
+        if failed_before:
+            repeatedly_failed = [f for f in missing_fields if f in failed_before]
+            if repeatedly_failed:
+                prompt_parts.extend([
+                    "",
+                    f"⚠️ WARNING: These fields have failed before: {', '.join(repeatedly_failed)}",
+                    "Please be extra careful with their values and format."
+                ])
         
         # Add context if available
         if original_context:

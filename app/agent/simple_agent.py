@@ -1,3 +1,5 @@
+# app/agent/simple_agent.py
+
 """
 Simple, Trust-Based LLM Agent - Prototype
 ==========================================

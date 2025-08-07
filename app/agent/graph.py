@@ -33,8 +33,6 @@ import operator
 import logging
 from datetime import date
 
-from app.agent.tools import all_tools  # ✅ List of LangChain tools like save_generated_plan_tool
-
 logger = logging.getLogger(__name__)
 
 # Define the agent state with message accumulation
@@ -45,53 +43,77 @@ class AgentState(TypedDict):
     conversation_context: Optional[dict]  # ✅ Store conversation context and previous responses
     intent: Optional[str]  # ✅ Store the classified intent (plan_management, question, clarification, etc.)
 
-# ✅ Define the specialized LLMs for different purposes
-llm_classifier = ChatOpenAI(model="gpt-4", temperature=0)  # For intent classification
-llm_conversational = ChatOpenAI(model="gpt-4", temperature=0.3)  # For conversations
-llm_with_tools = ChatOpenAI(model="gpt-4", temperature=0.2).bind_tools(all_tools)  # For plan management
+# ✅ Define the specialized LLMs for different purposes - LAZY INITIALIZATION
+def get_llm_classifier():
+    """Get intent classification LLM (lazy initialization to avoid import-time API key requirement)"""
+    return ChatOpenAI(model="gpt-4", temperature=0)
+
+def get_llm_conversational():
+    """Get conversational LLM (lazy initialization to avoid import-time API key requirement)"""
+    return ChatOpenAI(model="gpt-4", temperature=0.3)
+
+# Import tools only when needed to avoid circular imports
+def get_all_tools():
+    from app.agent.tools import all_tools
+    return all_tools
+
+# Defer tool binding until runtime
+def get_llm_with_tools():
+    return ChatOpenAI(model="gpt-4", temperature=0.2).bind_tools(get_all_tools())
 
 def get_domain_knowledge_prompt() -> str:
     """Return comprehensive domain knowledge about the personal planning system"""
     return f"""
 You are an intelligent AI personal planner with deep knowledge of goal planning and productivity systems.
 
-📊 **SYSTEM ARCHITECTURE KNOWLEDGE:**
+📊 **SYSTEM ARCHITECTURE KNOWLEDGE (Plan-Centric Architecture):**
 
-**Goal Types:**
-1. **Project Goals**: One-time objectives with specific end dates (e.g., "Learn Python", "Save $5000")
-   - Have: title, description, start_date, end_date, tasks
-   - Structure: Goal → Tasks (each with due_date, estimated_time)
+**Core Principle:** Goals are lightweight metadata containers, Plans contain all execution details.
+
+**Plan Types:**
+1. **Project Plans**: One-time objectives with specific end dates (e.g., "Learn Python", "Save $5000")
+   - Have: goal_type="project", start_date, end_date, tasks[]
+   - Structure: Plan → Tasks (each with due_date, estimated_time)
    
-2. **Habit Goals**: Recurring activities with cycles (e.g., "Exercise 3x/week", "Read daily")
-   - Have: title, description, start_date, recurrence_cycle, goal_frequency_per_cycle
-   - Structure: HabitGoal → HabitCycles → GoalOccurrences → Tasks
+2. **Habit Plans**: Recurring activities with cycles (e.g., "Exercise 3x/week", "Read daily")
+   - Have: goal_type="habit", recurrence_cycle, goal_frequency_per_cycle, habit_cycles[]
+   - Structure: Plan → HabitCycles → GoalOccurrences → Tasks
    - Cycles: monthly, weekly, daily patterns
    - Frequency: how many times per cycle (e.g., 3 times per week)
 
-**Data Model Hierarchy:**
+3. **Hybrid Plans**: Combination of project and habit elements
+   - Have: both tasks[] and habit_cycles[]
+   - Structure: Plan → Tasks + HabitCycles → GoalOccurrences → Tasks
+
+**Data Model Hierarchy (Plan-Centric):**
 - **User** (has many goals, plans, tasks)
-- **Goal** (base class)
-  - **ProjectGoal** (end_date required)
-    - **Tasks** (e.g., "Go to gym", "Pack gym bag")
-  - **HabitGoal** (cycles, recurrence patterns)
+- **Goal** (lightweight metadata: title, description, user_id only)
+- **Plan** (central orchestrator: goal_type, dates, execution details)
+  - **goal_type**: "project", "habit", or "hybrid"
+  - **Project Plans**: tasks[] array with due dates and time estimates
+  - **Habit Plans**: 
     - **HabitCycle** (e.g., "July 2025", "Week 1")
       - **GoalOccurrence** (e.g., "1st workout this week")
         - **Tasks** (e.g., "Go to gym", "Pack gym bag")
-- **Plan** (links goals to their generated structure, can be approved/refined)
-- **Feedback** (user input for plan refinements)
+  - **Hybrid Plans**: Both direct tasks[] and habit_cycles[]
+- **Feedback** (user input for plan refinements, links to both goal_id and plan_id)
 
 **Key Planning Concepts:**
-- **Tasks**: Atomic actions associated to each goal, with estimated_time, due_date
-- **Cycles**: Time periods for habits (weekly, monthly, daily, quarterly, yearly, etc.)
+- **Goals**: Lightweight containers (title, description only) - metadata layer
+- **Plans**: Execution orchestrators containing all implementation details
+- **Tasks**: Atomic actions with estimated_time, due_date (linked to Plan)
+- **Cycles**: Time periods for habits (weekly, monthly, daily, quarterly, yearly)
 - **Occurrences**: Individual instances within cycles (e.g., "1st workout this week")
-- **Plans**: Generated structures that link goals to their tasks and timelines, can be approved or refined
-- **Refinement**: Iterative improvement based on user feedback (feedback and refinement tools will be created later)
+- **Approval**: Plans can be approved (is_approved=True) or remain drafts
+- **Refinement**: Iterative improvement based on user feedback with refinement_round tracking
 
 **Smart Features:**
-- Plans can be refined based on user feedback (feedback and refinement tools will be created later)
-- AI can generate detailed plans with realistic task breakdowns
+- Plans can be refined based on user feedback, creating new plan versions
+- AI generates detailed plans with realistic task breakdowns and time estimates
 - Tasks include preparation steps (travel, setup time)
-- Progress tracking at all levels
+- Progress tracking at Goal, Plan, Cycle, and Task levels
+- One Goal can have multiple Plans (refinements, different approaches)
+- Only one Plan per Goal can be approved at a time
 - Timeline management with realistic scheduling
 
 Today's date: {date.today().isoformat()}
@@ -155,7 +177,7 @@ Respond with just the classification word.
     try:
         # ✅ SOLUTION: Pass conversation history to intent classifier
         classification_messages = messages[-3:] + [HumanMessage(content=classification_prompt)]  # Include recent context
-        response = llm_classifier.invoke(classification_messages)
+        response = get_llm_classifier().invoke(classification_messages)
         intent = str(response.content).strip().lower()
         
         # Validate intent
@@ -256,7 +278,7 @@ Provide a comprehensive response that:
     try:
         # ✅ SOLUTION: Include conversation history for conversational responses
         conversation_messages = messages[-5:] + [HumanMessage(content=conversation_prompt)]  # Include recent context
-        response = llm_conversational.invoke(conversation_messages)
+        response = get_llm_conversational().invoke(conversation_messages)
         response_text = str(response.content)
         
         logger.info(f"💬 CONVERSATIONAL NODE: Generated {len(response_text)} character response")
@@ -311,7 +333,7 @@ def plan_management_agent_node(state: AgentState) -> AgentState:
     
     logger.info(f"\n🧠 [PLAN MANAGEMENT Node] Processing plan management for: {user_input[:100]}...\n")
 
-    response = llm_with_tools.invoke(plan_management_messages)
+    response = get_llm_with_tools().invoke(plan_management_messages)
 
     tool_calls = getattr(response, 'tool_calls', None)
     if tool_calls:
@@ -386,8 +408,22 @@ def tool_node_with_logging(state: AgentState) -> AgentState:
             logger.info(f"   Executing Tool {i}: {tool_name}")
     
     # Execute the actual tools
-    tool_node = ToolNode(all_tools)
-    result = tool_node.invoke(state)
+    try:
+        logger.info("🔧 TOOL NODE: Invoking tools with current state")
+        
+        # Use the ToolNode to execute all available tools
+        tool_node = ToolNode(get_all_tools())
+        result = tool_node.invoke(state)
+
+    except Exception as e:
+        tool_id = tool_call.get('id', 'unknown')
+        logger.error(f"🔧 TOOL NODE: Error executing tools: Tool {tool_id} - Error: {e}")
+        return {
+            "messages": [AIMessage(content="I encountered an error while trying to execute the tools. Please try again.")],
+            "user_id": state["user_id"],
+            "conversation_context": state.get("conversation_context"),
+            "intent": state.get("intent")
+        }
     
     logger.info("✅ TOOL NODE: Tool execution completed")
     logger.info(f"📊 TOOL NODE: Returning {len(result['messages'])} new messages")
@@ -407,7 +443,7 @@ def tool_node_with_logging(state: AgentState) -> AgentState:
                     plan_data = json.loads(content_str)
                     context["last_plan_details"] = plan_data
                     break
-            except:
+            except (json.JSONDecodeError, ValueError):
                 pass
     
     return {
@@ -465,10 +501,9 @@ def run_graph_with_message(user_input: str, user_id: int = 1, conversation_histo
     import os
     
     # Get agent type from environment if not specified
-    if agent_type == "complex":
-        agent_type = os.getenv("AGENT_TYPE", "complex").lower()
+    actual_agent_type = os.getenv("AGENT_TYPE", agent_type).lower()
     
-    if agent_type == "simple":
+    if actual_agent_type == "simple":
         # Use simple trust-based agent
         from app.agent.agent_factory import AgentFactory
         agent = AgentFactory.create_agent("simple")
@@ -479,8 +514,7 @@ def run_graph_with_message(user_input: str, user_id: int = 1, conversation_histo
 
 def _run_complex_graph(user_input: str, user_id: int = 1, conversation_history: Optional[List[BaseMessage]] = None):
     """Internal function to run the complex LangGraph agent"""
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from app.ai.prompts import system_prompt
+    from langchain_core.messages import HumanMessage
     from app.agent.conversation_manager import conversation_manager
     """Run the LangGraph with a user input message and persistent conversation history."""
     logger.info("🚀 GRAPH EXECUTION: Starting intelligent LangGraph workflow")

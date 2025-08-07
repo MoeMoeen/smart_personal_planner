@@ -321,7 +321,14 @@ def robust_refine_plan(goal_description: str, previous_plan_content: str, prior_
         # Fallback to original chain if robust parsing fails
         import logging
         logger = logging.getLogger(__name__)
-        logger.warning(f"Robust parsing failed, falling back to original chain: {e}")
+        logger.error(f"❌ ROBUST REFINE: Robust parsing failed, falling back to original chain: {e}")
+        
+        # Log the failed LLM output for debugging
+        logger.error("💬 ROBUST REFINE: Last LLM output that failed parsing:")
+        logger.error("=" * 50)
+        output_str = str(llm_output)
+        logger.error(output_str[:1000] + "..." if len(output_str) > 1000 else output_str)
+        logger.error("=" * 50)
         
         # Use original chain as fallback
         result = refine_plan_chain.invoke({

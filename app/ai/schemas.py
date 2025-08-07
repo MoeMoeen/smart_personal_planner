@@ -94,12 +94,32 @@ class PlanStructure(BaseModel):
     
     @model_validator(mode='after')
     def validate_structure(self):
-        """Validate that at least one structure type is provided"""
+        """Validate that at least one structure type is provided and goal_type consistency"""
         has_habits = bool(self.habit_cycles)
         has_tasks = bool(self.tasks)
         
+        # Ensure at least one structure exists
         if not has_habits and not has_tasks:
             raise ValueError("Plan must have either habit_cycles, tasks, or both")
+        
+        # Enforce goal_type consistency (unless hybrid which is flexible)
+        actual_type = self.plan_type_actual
+        declared_type = self.goal_type.value if hasattr(self.goal_type, 'value') else str(self.goal_type)
+        
+        if declared_type != "hybrid":
+            if declared_type != actual_type:
+                raise ValueError(
+                    f"Inconsistent plan structure: declared goal_type='{declared_type}' "
+                    f"but actual content suggests '{actual_type}'. "
+                    f"Use 'hybrid' if you want both tasks and habit_cycles."
+                )
+        
+        # For hybrid, ensure we actually have both structures
+        if declared_type == "hybrid" and actual_type != "hybrid":
+            raise ValueError(
+                f"goal_type='hybrid' requires both tasks and habit_cycles, "
+                f"but only found content for '{actual_type}' plan"
+            )
         
         return self
     

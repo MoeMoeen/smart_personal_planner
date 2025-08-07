@@ -67,9 +67,29 @@ class SimpleAgent(BaseAgent):
     """Wrapper for the simple trust-based agent"""
     
     def process_message(self, message: str, user_id: int) -> Dict[str, Any]:
-        from app.agent.simple_agent_backup import run_simple_agent
+        from app.agent.simple_agent import SimplePlanningAgent
+        import asyncio
         
-        return run_simple_agent(message, user_id)
+        try:
+            agent = SimplePlanningAgent()
+            
+            # Handle async chat method
+            response = asyncio.run(agent.chat(user_id, message))
+            
+            return {
+                "response": response,
+                "success": True,
+                "agent_type": "simple_trust_based",
+                "message": "Simple agent processed successfully"
+            }
+            
+        except Exception as e:
+            return {
+                "response": f"Simple agent error: {str(e)}",
+                "success": False,
+                "agent_type": "simple_trust_based",
+                "error": str(e)
+            }
 
 class AgentFactory:
     """Factory class for creating different agent types"""
