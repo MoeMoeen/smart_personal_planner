@@ -127,3 +127,81 @@ def delete_goal(db: Session, goal_id: int) -> Optional[models.Goal]:
     db.delete(db_goal)
     db.commit()
     return db_goal
+
+# === USER CRUD OPERATIONS (Used by User Management Router) ===
+
+def get_user_by_id(db: Session, user_id: int) -> Optional[models.User]:
+    """Get user by ID"""
+    return db.query(models.User).filter(models.User.id == user_id).first()
+
+def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
+    """Get user by email"""
+    return db.query(models.User).filter(models.User.email == email).first()
+
+def get_user_by_telegram_id(db: Session, telegram_user_id: int) -> Optional[models.User]:
+    """Get user by Telegram user ID"""
+    return db.query(models.User).filter(models.User.telegram_user_id == telegram_user_id).first()
+
+def create_user(db: Session, user_data: schemas.UserCreate, hashed_password: str) -> models.User:
+    """Create a new user with email/password authentication"""
+    db_user = models.User(
+        email=user_data.email,
+        username=user_data.username,
+        first_name=user_data.first_name,
+        last_name=user_data.last_name,
+        hashed_password=hashed_password,
+        telegram_user_id=user_data.telegram_user_id
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def create_telegram_user(db: Session, user_data: schemas.UserCreate) -> models.User:
+    """Create a new user from Telegram data (no password required)"""
+    db_user = models.User(
+        username=user_data.username,
+        first_name=user_data.first_name,
+        last_name=user_data.last_name,
+        telegram_user_id=user_data.telegram_user_id
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def update_user(db: Session, user_id: int, user_updates: schemas.UserUpdate) -> Optional[models.User]:
+    """Update user information"""
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not db_user:
+        return None
+    
+    update_data = user_updates.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_user, field, value)
+    
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def update_user_password(db: Session, user_id: int, hashed_password: str) -> Optional[models.User]:
+    """Update user password"""
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not db_user:
+        return None
+    
+    setattr(db_user, "hashed_password", hashed_password)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def delete_user(db: Session, user_id: int) -> Optional[models.User]:
+    """Delete user (soft delete or hard delete based on your requirements)"""
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not db_user:
+        return None
+    
+    # Hard delete - you might want to implement soft delete instead
+    db.delete(db_user)
+    db.commit()
+    return db_user

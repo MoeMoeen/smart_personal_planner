@@ -98,55 +98,48 @@ class PlanStructure(BaseModel):
         has_habits = bool(self.habit_cycles)
         has_tasks = bool(self.tasks)
         
-        # Ensure at least one structure exists
+        # At least one structure type must be provided
         if not has_habits and not has_tasks:
-            raise ValueError("Plan must have either habit_cycles, tasks, or both")
+            raise ValueError("Plan must have either habit_cycles or tasks (or both)")
         
-        # Enforce goal_type consistency (unless hybrid which is flexible)
-        actual_type = self.plan_type_actual
-        declared_type = self.goal_type.value if hasattr(self.goal_type, 'value') else str(self.goal_type)
-        
-        if declared_type != "hybrid":
-            if declared_type != actual_type:
-                raise ValueError(
-                    f"Inconsistent plan structure: declared goal_type='{declared_type}' "
-                    f"but actual content suggests '{actual_type}'. "
-                    f"Use 'hybrid' if you want both tasks and habit_cycles."
-                )
-        
-        # For hybrid, ensure we actually have both structures
-        if declared_type == "hybrid" and actual_type != "hybrid":
-            raise ValueError(
-                f"goal_type='hybrid' requires both tasks and habit_cycles, "
-                f"but only found content for '{actual_type}' plan"
-            )
+        # Validate goal_type consistency
+        if self.goal_type == "habit" and not has_habits:
+            raise ValueError("Habit goals must have habit_cycles")
+        elif self.goal_type == "project" and not has_tasks:
+            raise ValueError("Project goals must have tasks")
+        elif self.goal_type == "hybrid" and not (has_habits and has_tasks):
+            raise ValueError("Hybrid goals must have both habit_cycles and tasks")
         
         return self
+
+
+# ------------------------------------------
+# ✅ 6. Generated Plan: Top-level container (what the LangChain returns)
+# ------------------------------------------
+class GeneratedPlan(BaseModel):
+    """
+    Top-level structure returned by LangChain parsing.
+    Contains both metadata (goal) and execution logic (plan).
+    """
+    goal: GoalPlan = Field(..., description="Goal metadata (title, description)")
+    plan: PlanStructure = Field(..., description="Execution structure and scheduling")
     
-    # AI metadata
+    # Optional AI tracking metadata
     ai_model_used: Optional[str] = Field(None, description="AI model used to generate this plan")
     ai_prompt_version: Optional[str] = Field(None, description="Version of the prompt used")
     generated_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="When the plan was generated")
     
     # Refinement tracking
     refinement_round: Optional[int] = Field(0, description="Round of refinement (0 for original)")
-    source_plan_id: Optional[int] = Field(None, description="ID of the plan this is refined from")
+    source_plan_id: Optional[int] = Field(None, description="ID of the plan this was refined from (if any)")
 
 
 # ------------------------------------------------
-# ✅ 6. Final generated plan wrapper (for parsing)
-# ------------------------------------------------
-class GeneratedPlan(BaseModel):
-    goal: GoalPlan = Field(..., description="The goal being planned (title & description only)")
-    plan: PlanStructure = Field(..., description="The execution plan with all implementation details")
-    plan_id: Optional[int] = Field(None, description="Optional ID of the generated plan")
-    user_id: Optional[int] = Field(None, description="ID of the user who owns this plan")
-    
-# ------------------------------------------------
-# ✅ 7. Plan feedback request schema. This is used to submit feedback on a generated plan.
+# FEEDBACK & RESPONSE SCHEMAS
 # ------------------------------------------------
 
 class PlanFeedbackRequest(BaseModel):
+    """User feedback on a generated plan"""
     plan_id: int = Field(..., description="ID of the generated plan to provide feedback on")
     goal_id: int = Field(..., description="ID of the goal associated with this plan")
     feedback_text: str = Field(..., description="Feedback on the generated plan in natural language, e.g., 'too many tasks', 'missing details'")
@@ -167,10 +160,15 @@ class PlanFeedbackResponse(BaseModel):
 
 # ------------------------------------------------
 
-# ✅ Input schema for the user’s natural language goal
+# ✅ Input schema for the user's natural language goal
 class GoalDescriptionRequest(BaseModel):
     goal_description: str = Field(..., description="User's natural language description of the goal")
     user_id: int = Field(..., description="ID of the user who owns this goal")  
+
+# ✅ Input schema for generating plan from existing goal
+class GeneratePlanRequest(BaseModel):
+    goal_id: int = Field(..., description="ID of the existing goal to generate a plan for")
+    user_preferences: str = Field("", description="User preferences for plan generation (optional)")
 
 # ✅ Output schema: the full structured plan
 class AIPlanResponse(BaseModel):
@@ -196,4 +194,3 @@ class AIPlanWithCodeResponse(GeneratedPlanWithCode):
 #     custom_feedback: Optional[str] = Field(..., description="Custom feedback on how to improve the plan, e.g., 'Add more tasks', 'Change frequency'")
 #     user_id: Optional[int] = Field(None, description="Optional user ID for tracking refinement source")
 #     timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), description="Optional timestamp of when the refinement was requested")
-

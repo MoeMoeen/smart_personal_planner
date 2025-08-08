@@ -7,25 +7,84 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from app.ai.goal_parser_chain import goal_parser_chain, parser
-from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanFeedbackResponse, GoalDescriptionRequest, AIPlanResponse, AIPlanWithCodeResponse
+from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanFeedbackResponse, GoalDescriptionRequest, AIPlanResponse, AIPlanWithCodeResponse, GeneratePlanRequest
 from app.ai.goal_code_generator import GeneratedPlanWithCode, parser as code_parser, goal_code_chain 
 from app.db import get_db  
 from sqlalchemy.orm import Session
 from app.crud import crud, planner
 from app.models import PlanFeedbackAction, Feedback, Plan
+from app.routers.users import get_current_user
+from app.models import User
 from datetime import date
 
 router = APIRouter(
     prefix="/planning",
     tags=["AI Planning"]
 )
+
 # ------------------------------------------------
 
-# ✅ Main route: POST /planning/ai-generate-plan
-@router.post("/ai-generate-plan", response_model=AIPlanResponse)
+# 🎯 NEW: Generate plan for existing goal (RECOMMENDED)
+@router.post("/generate-plan", response_model=AIPlanResponse)
+def generate_plan_for_goal(
+    request: GeneratePlanRequest, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate an AI plan for an existing goal. This is the recommended endpoint.
+    Takes a goal_id and generates a plan based on the goal's title and description.
+    """
+    try:
+        # Get the goal from database
+        goal = crud.get_goal_by_id(db, request.goal_id)
+        if not goal:
+            raise HTTPException(status_code=404, detail=f"Goal with ID {request.goal_id} not found")
+        
+        # Verify user owns this goal
+        if int(goal.user_id) != int(current_user.id):  # type: ignore
+            raise HTTPException(status_code=403, detail="Not authorized to generate plan for this goal")
+        
+        # Create goal description from existing goal data + user preferences
+        goal_description = f"Title: {goal.title}\nDescription: {goal.description}"
+        if request.user_preferences:
+            goal_description += f"\nUser Preferences: {request.user_preferences}"
+        
+        # Run the LangChain pipeline
+        today = date.today().isoformat()
+        generated_plan: GeneratedPlan = goal_parser_chain.invoke({
+            "goal_description": goal_description,
+            "format_instructions": parser.get_format_instructions(),
+            "today_date": today
+        })["plan"]
+
+        # Save the plan (this will create a new goal in the database)
+        # TODO: Modify save_generated_plan to link to existing goal instead of creating new one
+        saved_plan = planner.save_generated_plan(
+            plan=generated_plan,
+            db=db,
+            user_id=int(current_user.id)  # type: ignore
+        )
+        
+        print(f"Generated plan saved with ID: {saved_plan.id} for goal ID: {request.goal_id}")
+
+        response = AIPlanResponse(
+            plan=generated_plan, 
+            source="AI", 
+            ai_version="1.0", 
+            user_id=int(current_user.id)  # type: ignore
+        )
+        return response
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ✅ LEGACY: Generate plan from description (creates new goal)
+@router.post("/ai-generate-plan", response_model=AIPlanResponse, deprecated=True)
 def generate_plan_from_ai(request: GoalDescriptionRequest, db: Session = Depends(get_db)):
     """
-    Generate a structured plan from a natural language goal description using AI.
+    [DEPRECATED] Generate a structured plan from a natural language goal description using AI.
+    Creates a new goal. Use POST /planning/generate-plan for existing goals instead.
     """
     try:
         # Run the LangChain pipeline with the user's goal description

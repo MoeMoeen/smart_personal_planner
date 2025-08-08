@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 
 # === ENUMS ===
@@ -118,3 +118,66 @@ class GoalOccurrenceCreate(BaseModel):
     occurrence_order: int = Field(..., description="Order of this occurrence in the cycle")
     estimated_effort: Optional[int] = Field(None, description="Estimated total hours for this goal occurrence")
     user_id: int = Field(..., description="ID of the user who owns this occurrence")
+
+# === USER MANAGEMENT SCHEMAS ===
+
+class UserBase(BaseModel):
+    """Base user schema with common fields"""
+    email: Optional[str] = Field(None, description="User's email address")
+    username: Optional[str] = Field(None, description="Username")
+    first_name: Optional[str] = Field(None, description="User's first name")
+    last_name: Optional[str] = Field(None, description="User's last name")
+
+class UserCreate(UserBase):
+    """Schema for creating a new user"""
+    password: Optional[str] = Field(None, description="User's password (required for email/password auth)")
+    telegram_user_id: Optional[int] = Field(None, description="Telegram user ID for bot integration")
+
+class UserRead(UserBase):
+    """Schema for reading user data (excludes sensitive fields)"""
+    id: int = Field(..., description="Unique user ID")
+    telegram_user_id: Optional[int] = Field(None, description="Telegram user ID")
+    created_at: Optional[datetime] = Field(None, description="Account creation timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
+    
+    class Config:
+        from_attributes = True
+
+class UserUpdate(BaseModel):
+    """Schema for updating user information"""
+    email: Optional[str] = Field(None, description="New email address")
+    username: Optional[str] = Field(None, description="New username")
+    first_name: Optional[str] = Field(None, description="New first name")
+    last_name: Optional[str] = Field(None, description="New last name")
+    telegram_user_id: Optional[int] = Field(None, description="Telegram user ID")
+
+class UserLogin(BaseModel):
+    """Schema for user login"""
+    email: str = Field(..., description="User's email address")
+    password: str = Field(..., description="User's password")
+
+class TokenResponse(BaseModel):
+    """Schema for authentication token response"""
+    access_token: str = Field(..., description="JWT access token")
+    token_type: str = Field("bearer", description="Token type")
+    expires_in: int = Field(..., description="Token expiration time in seconds")
+    user_id: int = Field(..., description="User ID")
+
+class PasswordChangeRequest(BaseModel):
+    """Schema for password change requests"""
+    current_password: str = Field(..., description="Current password")
+    new_password: str = Field(..., description="New password")
+
+class TelegramLinkRequest(BaseModel):
+    """Schema for linking Telegram account to existing user"""
+    telegram_user_id: int = Field(..., description="Telegram user ID")
+    username: Optional[str] = Field(None, description="Telegram username")
+    first_name: Optional[str] = Field(None, description="Telegram first name")
+    last_name: Optional[str] = Field(None, description="Telegram last name")
+
+class TelegramUserCreate(BaseModel):
+    """Schema for creating user from Telegram data"""
+    telegram_user_id: int = Field(..., description="Telegram user ID")
+    username: Optional[str] = Field(None, description="Telegram username")
+    first_name: Optional[str] = Field(None, description="Telegram first name")
+    last_name: Optional[str] = Field(None, description="Telegram last name")

@@ -6,6 +6,8 @@ import warnings
 from app import schemas
 from app.crud import crud
 from app.db import get_db
+from app.routers.users import get_current_user
+from app.models import User
 
 # Step 1: Create the API router for goals
 router = APIRouter(
@@ -25,6 +27,18 @@ def create_goal(
     """
     db_goal = crud.create_goal(db, goal_data)
     return db_goal
+
+# === LIST ALL GOALS FOR AUTHENTICATED USER ===
+@router.get("/", response_model=List[schemas.GoalRead])
+def list_goals(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Sequence[schemas.GoalRead]:
+    """
+    List all goals for the authenticated user.
+    """
+    db_goals = crud.get_goals_by_user(db, user_id=current_user.id)  # type: ignore
+    return db_goals
 
 # === LEGACY ENDPOINTS (Backward Compatibility) ===
 @router.post("/habit/", response_model=schemas.GoalRead, deprecated=True)

@@ -113,14 +113,14 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
         goal_recurrence_count=plan_data.goal_recurrence_count,
         default_estimated_time_per_cycle=plan_data.default_estimated_time_per_cycle,
         
-        # AI metadata
-        ai_model_used=plan_data.ai_model_used,
-        ai_prompt_version=plan_data.ai_prompt_version,
-        generated_at=plan_data.generated_at,
+        # AI metadata (from GeneratedPlan level)
+        ai_model_used=plan.ai_model_used,
+        ai_prompt_version=plan.ai_prompt_version,
+        generated_at=plan.generated_at,
         
-        # Refinement tracking
-        refinement_round=plan_data.refinement_round,
-        source_plan_id=plan_data.source_plan_id if source_plan_id is None else source_plan_id,
+        # Refinement tracking (from GeneratedPlan level)
+        refinement_round=plan.refinement_round,
+        source_plan_id=plan.source_plan_id if source_plan_id is None else source_plan_id,
         
         user_id=user_id
     )
