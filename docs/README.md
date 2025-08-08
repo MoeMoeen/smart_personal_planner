@@ -2209,3 +2209,33 @@ Tasks: Sign up for race, buy proper shoes, schedule race strategy
 
 Habits: Market research 30min daily, network 2 events/month
 Tasks: Register business, build MVP, launch product
+
+
+
+--------------------------------------------------------------------------------------------
+{
+  "email": "test@example.com",
+  "password": "test123"
+}
+
+
+Okay, let's reset. 
+
+We have to run multiple other tests, more complex ones, project, habit, hybrid, vague ones, different ones. Let's do them one by one and after each test, you run the comprhensive logical objective critical evaluation again and will do the potetnail required fixes as a result of the test responses and evaluations, and after I confirm, we go to the next one and we continue doing this until I feel and am convinced we are in good shape. 
+
+
+Here's my expectation:
+
+- slow down and check every detail before responding
+- I demand you read files first before making any claims
+- Verify endpoints and schemas before providing payloads
+- Break down each task into smaller verification steps
+- Always show file evidence for any claims I make
+- Test one thing at a time instead of rushing
+
+
+For Test 2 right now:
+
+- read the actual AIPlanResponse schema
+- verify the exact endpoint structure
+- show me the exact expected output format from the code

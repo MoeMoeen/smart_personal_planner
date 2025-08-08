@@ -74,8 +74,21 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
     goal_data = plan.goal  # Lightweight metadata (title, description)
     plan_data = plan.plan  # All execution details (goal_type, dates, tasks, cycles)
 
-    # ✅ Enforce semantic correctness before DB write
+    # ✅ Enhanced validation with detailed completeness checking
     validate_plan_semantics(plan)
+    
+    # ✅ Additional completeness validation
+    from app.ai.goal_parser_chain import validate_plan_completeness
+    is_valid, issues = validate_plan_completeness(plan)
+    
+    if not is_valid:
+        logger.warning("🚨 Plan validation issues detected:")
+        for issue in issues:
+            logger.warning(f"  - {issue}")
+        # Continue with save but log the issues for debugging
+        # In production, you might want to reject incomplete plans
+    else:
+        logger.info("✅ Plan passed all validation checks")
 
     # ✅ Defensive validation: ensure goal_type is supported
     goal_type = plan_data.goal_type
@@ -113,11 +126,6 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
         goal_recurrence_count=plan_data.goal_recurrence_count,
         default_estimated_time_per_cycle=plan_data.default_estimated_time_per_cycle,
         
-        # AI metadata (from GeneratedPlan level)
-        ai_model_used=plan.ai_model_used,
-        ai_prompt_version=plan.ai_prompt_version,
-        generated_at=plan.generated_at,
-        
         # Refinement tracking (from GeneratedPlan level)
         refinement_round=plan.refinement_round,
         source_plan_id=plan.source_plan_id if source_plan_id is None else source_plan_id,
@@ -145,6 +153,7 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
             for occurrence in cycle.occurrences:
                 db_occurrence = GoalOccurrence(
                     cycle_id=db_cycle.id,
+                    plan_id=db_plan.id,  # Link to the plan
                     occurrence_order=occurrence.occurrence_order,
                     estimated_effort=occurrence.estimated_effort,
                     user_id=user_id

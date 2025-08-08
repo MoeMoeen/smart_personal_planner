@@ -132,6 +132,9 @@ class GeneratedPlan(BaseModel):
     # Refinement tracking
     refinement_round: Optional[int] = Field(0, description="Round of refinement (0 for original)")
     source_plan_id: Optional[int] = Field(None, description="ID of the plan this was refined from (if any)")
+    
+    # User tracking
+    user_id: Optional[int] = Field(None, description="ID of the user who owns this plan")
 
 
 # ------------------------------------------------
@@ -176,6 +179,7 @@ class AIPlanResponse(BaseModel):
     source: str = Field(default="AI", description="Source of the generated plan")   
     ai_version: str = Field(default="1.0", description="Version of the AI model used")
     user_id: int = Field(..., description="ID of the user who owns this plan")
+    plan_id: int = Field(..., description="ID of the saved plan in the database")
 
 # ✅ Output schema for plan with code snippet
 # 👇 This is what we expose as FastAPI response

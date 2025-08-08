@@ -105,6 +105,7 @@ class GoalOccurrenceUpdate(BaseModel):
 class GoalOccurrenceRead(BaseModel):
     id: int = Field(..., description="Unique ID of the goal occurrence within a cycle")
     cycle_id: int = Field(..., description="ID of the parent habit cycle")
+    plan_id: int = Field(..., description="ID of the parent plan")
     occurrence_order: int = Field(..., description="Order of this occurrence in the cycle")
     estimated_effort: Optional[int] = Field(None, description="Estimated total hours for this goal occurrence")
     completed: bool = Field(False, description="Whether this goal occurrence has been completed")
@@ -115,6 +116,7 @@ class GoalOccurrenceRead(BaseModel):
 
 class GoalOccurrenceCreate(BaseModel):
     cycle_id: int = Field(..., description="ID of the parent habit cycle")
+    plan_id: int = Field(..., description="ID of the parent plan")
     occurrence_order: int = Field(..., description="Order of this occurrence in the cycle")
     estimated_effort: Optional[int] = Field(None, description="Estimated total hours for this goal occurrence")
     user_id: int = Field(..., description="ID of the user who owns this occurrence")

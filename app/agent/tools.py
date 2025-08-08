@@ -10,7 +10,7 @@ import logging
 from datetime import date, datetime
 from app.ai.goal_parser_chain import goal_parser_chain, parser
 from app.crud import planner
-from app.routers.planning import generate_plan_from_ai, plan_feedback  # ✅ Import existing functions
+from app.routers.planning import create_goal_and_plan_from_description, plan_feedback  # ✅ Using proper goal+plan creation endpoint
 from app.models import GoalType, HabitCycle, GoalOccurrence, Task, PlanFeedbackAction, Plan
 
 # ✅ CONFIGURATION: Display limits for task summaries
@@ -64,10 +64,10 @@ def generate_plan_with_ai_tool(goal_prompt: str, user_id: int) -> str:
             user_id=user_id
         )
         
-        logger.info("🔄 TOOL: Calling existing generate_plan_from_ai function")
+        logger.info("🔄 TOOL: Calling create_goal_and_plan_from_description function")
         
-        # Call the existing, tested function
-        response: AIPlanResponse = generate_plan_from_ai(request=request, db=db)
+        # Call the proper goal+plan creation function which includes validation
+        response: AIPlanResponse = create_goal_and_plan_from_description(request=request, db=db)
         
         logger.info(f"✅ TOOL SUCCESS: Plan generated and saved for user {user_id}")
         
@@ -138,8 +138,8 @@ def generate_plan_with_ai_tool(goal_prompt: str, user_id: int) -> str:
             "message": f"✅ Created {plan.goal_type.value} goal: '{goal.title}' with detailed plan structure"
         }
         
-        # Return a clear success message that the agent can understand
-        return f"✅ PLAN SUCCESSFULLY CREATED AND SAVED!\n\nTitle: {goal.title}\nType: {plan.goal_type.value}\nDescription: {goal.description}\nTimeline: {timeline}\n\n{tasks_info}\n\nPlan ID: {response.plan.plan_id}"
+        # Return a clear success message that the agent can understand  
+        return f"✅ PLAN SUCCESSFULLY CREATED AND SAVED!\n\nPlan ID: {response.plan_id}\nTitle: {goal.title}\nType: {plan.goal_type.value}\nDescription: {goal.description}\nTimeline: {timeline}\n\n{tasks_info}\n\nThe plan has been saved to your account successfully."
         
     except Exception as e:
         logger.error(f"❌ TOOL ERROR: generate_plan_with_ai_tool failed: {str(e)}")

@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from app.ai.goal_parser_chain import goal_parser_chain, parser
+from app.ai.goal_parser_chain import goal_parser_chain, parser, generate_plan_with_validation
 from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanFeedbackResponse, GoalDescriptionRequest, AIPlanResponse, AIPlanWithCodeResponse, GeneratePlanRequest
 from app.ai.goal_code_generator import GeneratedPlanWithCode, parser as code_parser, goal_code_chain 
 from app.db import get_db  
@@ -24,7 +24,7 @@ router = APIRouter(
 
 # ------------------------------------------------
 
-# 🎯 NEW: Generate plan for existing goal (RECOMMENDED)
+# 🎯 Generate plan for existing goal
 @router.post("/generate-plan", response_model=AIPlanResponse)
 def generate_plan_for_goal(
     request: GeneratePlanRequest, 
@@ -32,8 +32,14 @@ def generate_plan_for_goal(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Generate an AI plan for an existing goal. This is the recommended endpoint.
-    Takes a goal_id and generates a plan based on the goal's title and description.
+    Generate an AI plan for an existing goal that's already in the database.
+    
+    Use this endpoint when:
+    - You have an existing goal_id and want to generate a new plan for it
+    - User wants to create additional plan alternatives for the same goal
+    - Regenerating plans with different preferences
+    
+    For creating new goals from natural language, use POST /planning/create-goal-and-plan instead.
     """
     try:
         # Get the goal from database
@@ -50,13 +56,22 @@ def generate_plan_for_goal(
         if request.user_preferences:
             goal_description += f"\nUser Preferences: {request.user_preferences}"
         
-        # Run the LangChain pipeline
-        today = date.today().isoformat()
-        generated_plan: GeneratedPlan = goal_parser_chain.invoke({
-            "goal_description": goal_description,
-            "format_instructions": parser.get_format_instructions(),
-            "today_date": today
-        })["plan"]
+        # Run the LangChain pipeline with validation
+        try:
+            generated_plan: GeneratedPlan = generate_plan_with_validation(goal_description)
+        except Exception as e:
+            # Fallback to original chain if validation fails
+            print(f"Validation-enhanced generation failed, using fallback: {e}")
+            today = date.today().isoformat()
+            generated_plan: GeneratedPlan = goal_parser_chain.invoke({
+                "goal_description": goal_description,
+                "format_instructions": parser.get_format_instructions(),
+                "today_date": today
+            })["plan"]
+
+        # Set user_id in the generated plan for proper tracking
+        generated_plan.goal.user_id = int(current_user.id)  # type: ignore
+        generated_plan.user_id = int(current_user.id)  # type: ignore
 
         # Save the plan (this will create a new goal in the database)
         # TODO: Modify save_generated_plan to link to existing goal instead of creating new one
@@ -72,44 +87,76 @@ def generate_plan_for_goal(
             plan=generated_plan, 
             source="AI", 
             ai_version="1.0", 
-            user_id=int(current_user.id)  # type: ignore
+            user_id=int(current_user.id),  # type: ignore
+            plan_id=saved_plan.id  # type: ignore  # ✅ Include plan ID in response
         )
         return response
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ✅ LEGACY: Generate plan from description (creates new goal)
-@router.post("/ai-generate-plan", response_model=AIPlanResponse, deprecated=True)
-def generate_plan_from_ai(request: GoalDescriptionRequest, db: Session = Depends(get_db)):
+# 🎯 Create goal and plan from natural language description
+@router.post("/create-goal-and-plan", response_model=AIPlanResponse)
+def create_goal_and_plan_from_description(request: GoalDescriptionRequest, db: Session = Depends(get_db)):
     """
-    [DEPRECATED] Generate a structured plan from a natural language goal description using AI.
-    Creates a new goal. Use POST /planning/generate-plan for existing goals instead.
+    Create a new goal and generate a structured plan from a natural language description using AI.
+    
+    Use this endpoint when:
+    - User describes a goal in natural language and wants both goal creation and plan generation
+    - Starting completely fresh with a new goal concept
+    - Agent workflows where goal and plan are created simultaneously
+    
+    For existing goals, use POST /planning/generate-plan instead.
     """
     try:
-        # Run the LangChain pipeline with the user's goal description
-        today = date.today().isoformat()
+        # Run the LangChain pipeline with validation (feature parity with main endpoint)
+        try:
+            generated_plan: GeneratedPlan = generate_plan_with_validation(request.goal_description)
+            print("✅ Used enhanced validation pipeline for goal+plan creation")
+        except Exception as e:
+            # Fallback to original chain if validation fails
+            print(f"Validation-enhanced generation failed, using fallback: {e}")
+            today = date.today().isoformat()
+            generated_plan: GeneratedPlan = goal_parser_chain.invoke({
+                "goal_description": request.goal_description,
+                "format_instructions": parser.get_format_instructions(),
+                "today_date": today
+            })["plan"]
+            print("⚠️ Used fallback chain for goal+plan creation")
 
-        generated_plan : GeneratedPlan = goal_parser_chain.invoke({
-            "goal_description": request.goal_description,
-            "format_instructions": parser.get_format_instructions(),
-            "today_date": today
-        })["plan"]
+        # Set user_id in the generated plan for proper tracking
+        generated_plan.user_id = request.user_id
 
-        response = AIPlanResponse(plan=generated_plan, source="AI", ai_version="1.0", user_id=request.user_id)
-
+        # Save the plan to database (this creates both goal and plan)
         saved_plan = planner.save_generated_plan(
             plan=generated_plan,
             db=db,
-            user_id=request.user_id  # Pass the user ID
+            user_id=request.user_id
         )
-        # Log the saved goal ID
-        print(f"Generated plan saved with goal ID: {saved_plan.id}")
+        
+        print(f"✅ Created new goal and plan with ID: {saved_plan.id} for user {request.user_id}")
 
-        # Return the structured plan as JSON
+        # Create response with the plan ID included (feature parity)
+        response = AIPlanResponse(
+            plan=generated_plan, 
+            source="AI", 
+            ai_version="1.0", 
+            user_id=request.user_id,
+            plan_id=saved_plan.id  # type: ignore  # ✅ SQLAlchemy runtime value vs Column type
+        )
+
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# 🔄 Legacy alias for backward compatibility
+@router.post("/ai-generate-plan", response_model=AIPlanResponse, deprecated=True)
+def generate_plan_from_ai(request: GoalDescriptionRequest, db: Session = Depends(get_db)):
+    """
+    [LEGACY ALIAS] Use /create-goal-and-plan instead.
+    This endpoint is kept for backward compatibility only.
+    """
+    return create_goal_and_plan_from_description(request, db)
 
 # ✅ Route for generating a plan with code snippet    
 @router.post("/ai-generate-plan-with-code", response_model=AIPlanWithCodeResponse)

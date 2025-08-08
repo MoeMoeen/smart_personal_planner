@@ -28,26 +28,6 @@ base_parser = PydanticOutputParser(pydantic_object=GeneratedPlan)
 # ✅ Use the base parser directly instead of OutputFixingParser to avoid the chain issue
 parser = base_parser
 
-# ✅ If you want auto-fixing later, use this configuration:
-# openai_api_key_str = str(config("OPENAI_API_KEY"))
-# llm_for_fixing = ChatOpenAI(
-#     model=os.getenv("OPENAI_MODEL", "gpt-4"),
-#     temperature=0.2,
-#     api_key=SecretStr(openai_api_key_str)
-# )
-# 
-# # Create a simple fixing chain
-# from langchain.prompts import ChatPromptTemplate
-# fixing_prompt = ChatPromptTemplate.from_template(
-#     "Fix the following JSON to be valid:\n{completion}\n\nFixed JSON:"
-# )
-# retry_chain = fixing_prompt | llm_for_fixing
-# 
-# parser = OutputFixingParser(
-#     parser=base_parser,
-#     retry_chain=retry_chain
-# )
-
 # ✅ Define the prompt template with placeholders for dynamic content, i.e, for the LLM (system + user)
 # ✅ Create the system prompt that guides the LLM
 
@@ -124,6 +104,14 @@ prompt_template = ChatPromptTemplate.from_messages([
                 - title
                 - due_date
                 - estimated_time
+
+    🎯 **TIME ESTIMATION CALIBRATION (CRITICAL):**
+    - AVOID identical time estimates - each task has different complexity
+    - Simple tasks: 180-300 minutes (basic concepts, setup)
+    - Medium tasks: 300-420 minutes (moderate complexity, practice)
+    - Complex tasks: 420-600 minutes (advanced concepts, integration)
+    - Consider prerequisite knowledge and task difficulty differences
+    - Vary estimates based on actual task complexity, not arbitrary patterns
 
     ⚠️ Temporal Constraints:
     - All dates must be in the future
@@ -335,6 +323,337 @@ def robust_refine_plan(goal_description: str, previous_plan_content: str, prior_
             "goal_description": goal_description,
             "previous_plan": previous_plan_content, 
             "prior_feedback": prior_feedback
+        })
+        
+        return result["plan"]
+
+
+# ✅ NEW: Validate plan completeness function
+def validate_plan_completeness(plan: GeneratedPlan) -> tuple[bool, list[str]]:
+    """
+    Validate that a generated plan has all required fields and structure completeness.
+    
+    This function performs comprehensive validation beyond basic semantic validation,
+    checking for missing fields, proper structure, and logical consistency.
+    
+    Args:
+        plan: The GeneratedPlan object to validate
+        
+    Returns:
+        tuple: (is_valid: bool, issues: list[str])
+            - is_valid: True if plan passes all validation checks
+            - issues: List of validation issues found (empty if valid)
+    """
+    issues = []
+    
+    try:
+        goal_data = plan.goal
+        plan_data = plan.plan
+        
+        # Basic structure validation
+        if not goal_data:
+            issues.append("Missing goal data")
+            return False, issues
+            
+        if not plan_data:
+            issues.append("Missing plan data")
+            return False, issues
+            
+        # Goal metadata validation
+        if not goal_data.title or goal_data.title.strip() == "":
+            issues.append("Goal title is missing or empty")
+            
+        if not goal_data.description or goal_data.description.strip() == "":
+            issues.append("Goal description is missing or empty")
+            
+        # Plan structure validation
+        if not plan_data.goal_type:
+            issues.append("Goal type is missing")
+            return False, issues
+            
+        if not plan_data.start_date:
+            issues.append("Start date is missing")
+            
+        # Goal type specific validation
+        goal_type = plan_data.goal_type
+        
+        if goal_type == "habit":
+            # Habit-specific validation
+            habit_issues = _validate_habit_plan_completeness(plan_data)
+            issues.extend(habit_issues)
+            
+        elif goal_type == "project":
+            # Project-specific validation
+            project_issues = _validate_project_plan_completeness(plan_data)
+            issues.extend(project_issues)
+            
+        elif goal_type == "hybrid":
+            # Hybrid-specific validation (needs both habit and project elements)
+            habit_issues = _validate_habit_plan_completeness(plan_data)
+            project_issues = _validate_project_plan_completeness(plan_data, is_hybrid=True)
+            issues.extend(habit_issues)
+            issues.extend(project_issues)
+            
+        else:
+            issues.append(f"Unknown goal type: {goal_type}")
+            
+        # Date validation
+        date_issues = _validate_plan_dates(plan_data)
+        issues.extend(date_issues)
+        
+        # Task validation
+        task_issues = _validate_plan_tasks(plan_data)
+        issues.extend(task_issues)
+        
+        is_valid = len(issues) == 0
+        return is_valid, issues
+        
+    except Exception as e:
+        issues.append(f"Validation error: {str(e)}")
+        return False, issues
+
+
+def _validate_habit_plan_completeness(plan_data) -> list[str]:
+    """Validate habit-specific plan completeness."""
+    issues = []
+    
+    # Required habit fields
+    required_fields = {
+        'goal_frequency_per_cycle': 'Goal frequency per cycle',
+        'goal_recurrence_count': 'Goal recurrence count',
+        'recurrence_cycle': 'Recurrence cycle',
+        'default_estimated_time_per_cycle': 'Default estimated time per cycle'
+    }
+    
+    for field, label in required_fields.items():
+        value = getattr(plan_data, field, None)
+        if value is None:
+            issues.append(f"{label} is missing")
+        elif field in ['goal_frequency_per_cycle', 'goal_recurrence_count', 'default_estimated_time_per_cycle']:
+            if not isinstance(value, (int, float)) or value <= 0:
+                issues.append(f"{label} must be a positive number")
+    
+    # Validate habit cycles
+    if not hasattr(plan_data, 'habit_cycles') or not plan_data.habit_cycles:
+        issues.append("No habit cycles defined")
+    else:
+        for i, cycle in enumerate(plan_data.habit_cycles):
+            cycle_issues = _validate_habit_cycle(cycle, i + 1)
+            issues.extend(cycle_issues)
+    
+    return issues
+
+
+def _validate_project_plan_completeness(plan_data, is_hybrid: bool = False) -> list[str]:
+    """Validate project-specific plan completeness."""
+    issues = []
+    
+    # Project plans require an end date
+    if not is_hybrid and not plan_data.end_date:
+        issues.append("Project plan is missing end date")
+    
+    # Project plans need tasks
+    if not hasattr(plan_data, 'tasks') or not plan_data.tasks:
+        issues.append("No project tasks defined")
+    else:
+        # Validate that tasks have proper structure
+        for i, task in enumerate(plan_data.tasks):
+            task_issues = _validate_task_structure(task, f"Project task {i + 1}")
+            issues.extend(task_issues)
+    
+    return issues
+
+
+def _validate_habit_cycle(cycle, cycle_num: int) -> list[str]:
+    """Validate a habit cycle structure."""
+    issues = []
+    
+    if not hasattr(cycle, 'cycle_label') or not cycle.cycle_label:
+        issues.append(f"Cycle {cycle_num} is missing cycle_label")
+    
+    if not hasattr(cycle, 'start_date') or not cycle.start_date:
+        issues.append(f"Cycle {cycle_num} is missing start_date")
+    
+    if not hasattr(cycle, 'end_date') or not cycle.end_date:
+        issues.append(f"Cycle {cycle_num} is missing end_date")
+    
+    if not hasattr(cycle, 'occurrences') or not cycle.occurrences:
+        issues.append(f"Cycle {cycle_num} has no occurrences")
+    else:
+        for j, occurrence in enumerate(cycle.occurrences):
+            occ_issues = _validate_occurrence_structure(occurrence, cycle_num, j + 1)
+            issues.extend(occ_issues)
+    
+    return issues
+
+
+def _validate_occurrence_structure(occurrence, cycle_num: int, occ_num: int) -> list[str]:
+    """Validate an occurrence structure."""
+    issues = []
+    
+    if not hasattr(occurrence, 'occurrence_order') or occurrence.occurrence_order is None:
+        issues.append(f"Cycle {cycle_num}, occurrence {occ_num} is missing occurrence_order")
+    
+    if not hasattr(occurrence, 'estimated_effort') or occurrence.estimated_effort is None:
+        issues.append(f"Cycle {cycle_num}, occurrence {occ_num} is missing estimated_effort")
+    
+    if not hasattr(occurrence, 'tasks') or not occurrence.tasks:
+        issues.append(f"Cycle {cycle_num}, occurrence {occ_num} has no tasks")
+    else:
+        for k, task in enumerate(occurrence.tasks):
+            task_issues = _validate_task_structure(task, f"Cycle {cycle_num}, occurrence {occ_num}, task {k + 1}")
+            issues.extend(task_issues)
+    
+    return issues
+
+
+def _validate_task_structure(task, task_label: str) -> list[str]:
+    """Validate a task structure."""
+    issues = []
+    
+    if not hasattr(task, 'title') or not task.title or task.title.strip() == "":
+        issues.append(f"{task_label} is missing title")
+    
+    if not hasattr(task, 'due_date'):
+        issues.append(f"{task_label} is missing due_date")
+    
+    if not hasattr(task, 'estimated_time') or task.estimated_time is None:
+        issues.append(f"{task_label} is missing estimated_time")
+    elif not isinstance(task.estimated_time, (int, float)) or task.estimated_time <= 0:
+        issues.append(f"{task_label} estimated_time must be a positive number")
+    
+    return issues
+
+
+def _validate_plan_dates(plan_data) -> list[str]:
+    """Validate plan dates for logical consistency."""
+    issues = []
+    
+    try:
+        from datetime import datetime, date as date_type
+        
+        # Convert date strings to date objects for comparison
+        start_date = None
+        end_date = None
+        
+        if plan_data.start_date:
+            if isinstance(plan_data.start_date, str):
+                start_date = datetime.fromisoformat(plan_data.start_date).date()
+            elif isinstance(plan_data.start_date, date_type):
+                start_date = plan_data.start_date
+        
+        if plan_data.end_date:
+            if isinstance(plan_data.end_date, str):
+                end_date = datetime.fromisoformat(plan_data.end_date).date()
+            elif isinstance(plan_data.end_date, date_type):
+                end_date = plan_data.end_date
+        
+        # Validate date logic
+        if start_date and end_date:
+            if end_date <= start_date:
+                issues.append("End date must be after start date")
+        
+        # Check if dates are in the future
+        today = date_type.today()
+        if start_date and start_date < today:
+            issues.append("Start date should not be in the past")
+    
+    except Exception as e:
+        issues.append(f"Date validation error: {str(e)}")
+    
+    return issues
+
+
+def _validate_plan_tasks(plan_data) -> list[str]:
+    """Validate overall task structure and consistency."""
+    issues = []
+    
+    total_tasks = 0
+    
+    # Count tasks in habit cycles
+    if hasattr(plan_data, 'habit_cycles') and plan_data.habit_cycles:
+        for cycle in plan_data.habit_cycles:
+            if hasattr(cycle, 'occurrences') and cycle.occurrences:
+                for occurrence in cycle.occurrences:
+                    if hasattr(occurrence, 'tasks') and occurrence.tasks:
+                        total_tasks += len(occurrence.tasks)
+    
+    # Count project tasks
+    if hasattr(plan_data, 'tasks') and plan_data.tasks:
+        total_tasks += len(plan_data.tasks)
+    
+    if total_tasks == 0:
+        issues.append("Plan has no tasks defined")
+    
+    return issues
+
+
+# ✅ NEW: Generate plan with validation function
+def generate_plan_with_validation(goal_description: str) -> GeneratedPlan:
+    """
+    Generate a structured plan from a natural language goal description with enhanced validation.
+    
+    This function uses the robust parser to handle incomplete LLM outputs and ensure
+    all required fields are properly filled.
+    
+    Args:
+        goal_description: Natural language description of the goal
+        
+    Returns:
+        GeneratedPlan: Validated and complete plan
+        
+    Raises:
+        Exception: If plan generation fails after all retries
+    """
+    try:
+        # Import here to avoid circular imports
+        from app.ai.robust_parser import RobustParser
+        
+        # Get today's date for prompt context
+        today = date.today().isoformat()
+        
+        # Generate initial LLM output using the main prompt
+        messages = prompt.format_messages(
+            goal_description=goal_description,
+            today_date=today
+        )
+        
+        response = llm.invoke(messages)
+        llm_output = response.content if hasattr(response, 'content') else str(response)
+        
+        # Ensure we have a string output
+        if isinstance(llm_output, list):
+            llm_output = str(llm_output)
+        elif not isinstance(llm_output, str):
+            llm_output = str(llm_output)
+        
+        # Initialize robust parser
+        robust_parser = RobustParser(llm=llm, max_retries=3)
+        
+        # Use robust parser to handle any missing fields
+        original_context = f"Goal: {goal_description}\nToday: {today}"
+        
+        result = robust_parser.parse_with_retry(
+            llm_output=llm_output,
+            target_model=GeneratedPlan,
+            original_prompt_context=original_context,
+            source_plan_data=None
+        )
+        
+        return result
+        
+    except Exception as e:
+        # Fallback to original chain if robust parsing fails
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"❌ VALIDATION: Enhanced generation failed, falling back to original chain: {e}")
+        
+        # Use original chain as fallback
+        today = date.today().isoformat()
+        result = goal_parser_chain.invoke({
+            "goal_description": goal_description,
+            "format_instructions": parser.get_format_instructions(),
+            "today_date": today
         })
         
         return result["plan"]
