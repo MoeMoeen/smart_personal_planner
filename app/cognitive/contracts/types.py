@@ -1,4 +1,4 @@
-# app/contracts/types.py
+# app/cognitive/contracts/types.py
 
 from typing import List, Literal, Optional, Union
 from datetime import datetime, date

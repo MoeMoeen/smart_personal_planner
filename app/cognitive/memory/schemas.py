@@ -1,4 +1,4 @@
-# app/memory/schemas.py
+# app/cognitive/memory/schemas.py
 
 from sqlalchemy import Column, String, DateTime, JSON, Enum, Integer, Float, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
