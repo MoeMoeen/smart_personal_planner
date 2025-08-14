@@ -1,4 +1,9 @@
 # app/cognitive/world/validator.py
+""" 
+Validator for world state and task scheduling 
+This module provides validation logic for tasks against the world state,
+ensuring they adhere to constraints and do not conflict with existing tasks.
+"""
 
 from typing import List, Dict, Optional
 from datetime import datetime, time, timedelta
