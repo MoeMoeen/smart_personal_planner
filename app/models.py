@@ -348,3 +348,6 @@ class Feedback(Base):
 
     def __repr__(self):
         return f"<Feedback(id={self.id}, user_id={self.user_id}, plan_id={self.plan_id}, goal_id={self.goal_id}, feedback_text={self.feedback_text})>"
+
+# Import memory models to ensure they're included in migrations
+from app.memory.schemas import MemoryORM, MemoryAssociation
