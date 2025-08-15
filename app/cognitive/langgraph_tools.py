@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from .world.updater import WorldUpdater
 from .world.state import CalendarizedTask
-from .semantic_memory import SemanticMemory, MemoryPriority
+from memory.semantic import SemanticMemory, MemoryPriority
 
 
 # === TOOL INPUT SCHEMAS ===

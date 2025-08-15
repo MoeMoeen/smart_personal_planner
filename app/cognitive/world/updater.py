@@ -25,7 +25,7 @@ from .state import CalendarizedTask, WorldState
 from .validator import WorldValidator, ValidationResult
 from .query import WorldQueryEngine
 from app.models import ScheduledTask, CapacitySnapshot
-from ..semantic_memory import SemanticMemory, MemoryPriority
+from ..memory.semantic import SemanticMemory, MemoryPriority
 
 
 class UpdateAction(str, Enum):

@@ -1,6 +1,8 @@
 # app/cognitive/memory/storage.py
-
-# app/memory/storage.py
+""" Memory storage and retrieval functions.
+This module provides functionality to store and retrieve
+different types of memory objects. 
+"""
 
 from sqlalchemy.orm import Session
 from .schemas import MemoryORM, MemoryType
