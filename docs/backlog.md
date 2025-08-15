@@ -170,4 +170,63 @@ This will let the system coordinate intelligently across:
 We can even add a `source: "assistant" | "external"` field to `CalendarizedTask` to keep track.
 
 ---
+## updater.py
+
+def _persist_task_addition(self, task: CalendarizedTask) -> None:
+        """Persist new task to database via SQLAlchemy models"""
+        # TODO: Implement SQLAlchemy persistence
+        # This would convert CalendarizedTask to appropriate ORM models
+        # and save to database
+        pass
+    
+    def _persist_task_removal(self, task_id: str) -> None:
+        """Persist task removal to database"""
+        # TODO: Implement SQLAlchemy removal
+        pass
+    
+    def _persist_task_update(self, task: CalendarizedTask) -> None:
+        """Persist task update to database"""
+        # TODO: Implement SQLAlchemy update
+        pass
+    
+    def _persist_plan_application(self, tasks: List[CalendarizedTask]) -> None:
+        """Persist entire plan to database"""
+        # TODO: Implement batch SQLAlchemy persistence
+        pass
+    
+    # === SEMANTIC MEMORY HOOKS (Future: Step 2.5) ===
+    
+    def _update_semantic_memory(self, task: CalendarizedTask, action: UpdateAction) -> None:
+        """Update semantic memory for learning patterns"""
+        # TODO: Implement in Step 2.5 when semantic.py is available
+        # This would store task patterns, user preferences, scheduling decisions
+        pass
+    
+    def _update_semantic_memory_for_plan(self, tasks: List[CalendarizedTask]) -> None:
+        """Update semantic memory for plan-level patterns"""
+        # TODO: Implement in Step 2.5
+        # This would store plan structures, user planning patterns
+        pass
+
+
+def _invalidate_caches(self, impact: ChangeImpact) -> List[str]
+
+
+--------------------------------------------------------------------------------------------------
+
+## 💡 Nice-to-Haves for Later
+
+
+| Feature                     | Suggestion                                                                                      |
+| --------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Logging Hooks**           | Add optional `logger` support for traceability.                                                 |
+| **Conflict Resolution**     | Return suggested slots if task can’t be added (use `query.py`).                                 |
+| **Undo Stack**              | You already have rollback logic — could easily evolve into undo stack.                          |
+| **Semantic Memory**         | Consider separate module interface with versioned log of actions.                               |
+| **LangGraph Tool Wrappers** | Expose `add_task`, `remove_task`, `apply_plan` as tools. Add metadata to support observability. |
+
+
+----------------------------------------------------------------------
+
+## Future Enhancements: 7. Goal Outcome tracking - Analytics and insights
 
