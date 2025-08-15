@@ -1,5 +1,18 @@
-🧠 Smart Planner AI
+# 🧠 Smart Planner AI
+
 A full-stack AI-powered goal planning assistant that supports natural language input, generates structured plans with timelines and tasks, tracks performance, and enables conversational refinement — built with FastAPI, LangChain, LangGraph, SQLAlchemy, and integrated with Telegram for a real-time assistant experience.
+
+## 📚 **Documentation Index**
+
+- **[🧠 Cognitive Architecture Analysis](./COGNITIVE_ARCHITECTURE_ANALYSIS.md)** - Comprehensive flow analysis of the cognitive system
+- **[🤖 Agent Architecture](./AGENT_ARCHITECTURE.md)** - LangGraph agent implementation details  
+- **[📋 Deployment Checklist](./DEPLOYMENT_CHECKLIST.md)** - Production deployment guide
+- **[🚀 Enhancement Implementation](./ENHANCEMENT_IMPLEMENTATION_SUMMARY.md)** - Latest feature implementations
+- **[🎯 Semantic Ranking](./SEMANTIC_RANKING_COMPLETE.md)** - Intelligent slot ranking system
+- **[🌍 World Updater](./WORLD_UPDATER_COMPLETE.md)** - State management system
+
+---
+
 The AI-powered personal goal planner helps you:
 - Create and track project goals or habits
 - Break goals into tasks based on time estimates and availability

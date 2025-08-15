@@ -1,5 +1,7 @@
 # app/cognitive/world/state.py
 
+"""World state representation for task management and user availability."""
+
 from typing import List, Dict, Optional
 from datetime import datetime, date, time, timezone
 from pydantic import BaseModel, Field
