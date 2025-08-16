@@ -8,7 +8,7 @@ using vector databases for fuzzy recall.
 """
 
 # Export semantic memory components for easy access
-from .semantic import SemanticMemory, MemoryPriority, MemoryType as SemanticMemoryType, MemoryEntry
+from .semantic import SemanticMemory, MemoryPriority, SemanticMemoryType as SemanticMemoryType, MemoryEntry
 from .schemas import MemoryORM, MemoryAssociation, MemoryType
 from .storage import write_memory, retrieve_memory
 

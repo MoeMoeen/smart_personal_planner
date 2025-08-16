@@ -105,7 +105,7 @@ class WorldUpdater:
         # Semantic memory for learning and pattern recognition
         self.semantic_memory: Optional[SemanticMemory] = None
         if user_id:
-            self.semantic_memory = SemanticMemory(user_id=user_id, logger=self.logger)
+            self.semantic_memory = SemanticMemory(user_id=user_id, db_session=self.db_session, logger=self.logger)
     
     # === CORE UPDATE METHODS ===
     

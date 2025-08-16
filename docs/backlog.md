@@ -230,3 +230,105 @@ def _invalidate_caches(self, impact: ChangeImpact) -> List[str]
 
 ## Future Enhancements: 7. Goal Outcome tracking - Analytics and insights
 
+-------------------------------------------------------------
+
+## Memory Routing Intelligence:
+LM only triggers the chain, doesn't play any role in routing intelligence yet. We plan to use LLMs to play a central role in the routing intelligence in the next version....
+#
+# 🏁 Checkpoint: Cognitive AI Refactor – August 2025
+#
+
+## Current Achievements
+- **Memory System**
+  - All three memory types (`episodic.py`, `semantic.py`, `procedural.py`) are defined.
+  - Memory router exists, but only partially connects all types and is still rule-based.
+  - `MemoryContext` class exists, but needs review and refactor for full multi-memory support and node injection.
+  - Semantic memory is not yet connected to a vector DB; no embedding/retrieval pipeline is live.
+  - Episodic and procedural memory are not yet integrated with updater or LangGraph nodes.
+
+- **World Model**
+  - `state.py`, `updater.py`, `validator.py`, `query.py` are implemented and robust.
+  - In-memory and schema-based world state, capacity, and availability logic are functional.
+  - Validator supports task-level and some plan-level checks.
+
+- **Planning & Contracts**
+  - Core contract models (`GoalSpec`, `PlanOutline`, `OccurrenceTasks`, etc.) are established.
+  - Only skeletons for task generation and outline nodes exist; no full node system.
+
+- **Graph/Node System**
+  - No new LangGraph nodes exist for any cognitive AI step (strategy, outline, tasks, calendar, validation, etc.).
+  - No node logic is wired into a new graph; no graph setup or tool registration.
+  - No memory or world state injection into nodes.
+  - All graph code in `agent/` is legacy, monolithic, and not aligned with the new vision.
+
+- **Other Layers**
+  - **Dialogue:** No user feedback, clarification, or chat context nodes.
+  - **Learning:** No learning loop; semantic memory not updated from outcomes.
+  - **Reasoning:** No prioritization, plan comparison, or goal tradeoff logic.
+  - **Execution:** No reminders, calendar sync, or external API integration.
+  - **Observability:** Logging and undo/redo exist in some modules, but not consistently or at the agent/tool interface.
+
+---
+
+## Next Steps (Prioritized)
+1. **Review and Refactor `MemoryContext`**
+    - Audit and update to support all memory types and node injection.
+2. **Integrate All Memory Types with Router and Node Injection**
+    - Refactor router for episodic, semantic, and procedural memory.
+    - Ensure all types are available to nodes via `MemoryContext`.
+3. **Design and Implement New LangGraph Node System**
+    - Create `nodes/` folder.
+    - Implement nodes for: strategy interpretation, plan outline, task generation, world model integration, calendarization, validation, user confirmation, persistence.
+    - Each node should have a clear contract and be testable in isolation.
+4. **Inject `MemoryContext` into Every Node**
+    - Systematically inject and utilize `MemoryContext` in all nodes.
+5. **Wire World Model into Graph Nodes**
+    - Ensure all relevant nodes receive and update world state as needed.
+6. **Implement LLM-Based Intelligent Memory Routing**
+    - Replace rule-based routing with LLM-powered context analysis for memory selection.
+7. **Integrate Semantic Memory with Vector DB**
+    - Complete vector DB setup and connect semantic memory to router and nodes.
+8. **Implement Learning and Feedback Loop**
+    - Update semantic memory with outcomes and use learned patterns for future planning.
+9. **Add Dialogue and User Feedback Nodes**
+    - Implement nodes for user clarification, feedback, and corrections.
+10. **Implement Reasoning and Prioritization Logic**
+     - Add logic for prioritization, plan comparison, and goal tradeoffs.
+11. **Observability, Logging, and Undo/Redo**
+     - Add structured logging and undo/redo to all nodes and tools.
+12. **Remove/Archive/Refactor Legacy Code**
+     - Archive or refactor all legacy code in `agent/` and `ai/` folders.
+     - Remove or modularize any remaining monolithic planner/task logic.
+     - Delete or archive any files not aligned with the new cognitive AI architecture.
+
+---
+
+## Cleanup Plan
+- **Legacy Code:** Archive or refactor all code in `agent/` and `ai/` folders that does not fit the new node-based, memory-injected, world-aware architecture.
+- **Obsolete Files:** Delete or archive any files not aligned with the new cognitive AI architecture.
+- **Documentation:** Update all docs to reflect the new architecture, node system, and memory integration. Clearly mark legacy approaches as deprecated.
+
+---
+
+Current Implementation: Rule-based routing using keyword patterns and context analysis
+Future Enhancement: LLM-powered semantic routing with learning capabilities
+
+TODO for next version:
+- Integrate LLM for semantic content understanding
+- Add learning from routing success/failure patterns  
+- Implement contextual embeddings for better routing decisions
+- Add user preference learning for personalized routing
+
+## AI Learning
+
+CURRENT LIMITATION: Data collection without active learning loop
+- Memories are stored but not yet injected into AI prompts
+- Pattern analysis exists but isn't used for decision improvement
+- This is the foundation layer for future learning integration
+
+NEXT VERSION: Active Learning Integration
+- Memory context injection into LangGraph agent prompts
+- Preference-based decision enhancement
+- Feedback loop for continuous AI improvement
+- Pattern-driven scheduling optimization
+------------------------------------------------------------
