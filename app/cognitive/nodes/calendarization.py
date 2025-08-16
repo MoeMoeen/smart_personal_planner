@@ -1,0 +1,20 @@
+"""
+Calendarization / Time Allocation Node
+- Assigns time slots to tasks using world state
+- Returns CalendarizedPlan
+"""
+from app.cognitive.contracts.types import OccurrenceTasks, CalendarizedPlan, MemoryContext
+from app.cognitive.world.state import WorldState
+
+def calendarization_node(occurrence_tasks: list[OccurrenceTasks], world_state: WorldState, memory_context: MemoryContext) -> CalendarizedPlan:
+    """
+    Stub for calendarization node.
+    Args:
+        occurrence_tasks: Tasks for each occurrence
+        world_state: Current global world state
+        memory_context: Injected memory context
+    Returns:
+        CalendarizedPlan: Tasks with assigned time slots
+    """
+    # TODO: Implement time allocation logic
+    raise NotImplementedError("Calendarization node not implemented yet.")

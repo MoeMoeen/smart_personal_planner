@@ -6,10 +6,12 @@ This module provides a unified interface for memory operations across
 episodic, semantic, and procedural memory systems with intelligent routing.
 """
 
+
 import logging
 from typing import List, Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
+from app.cognitive.contracts.types import MemoryContext
 
 from .semantic import SemanticMemory
 from .episodic import EpisodicMemory
@@ -18,6 +20,102 @@ from .router import MemoryRouter, MemoryIntent, MemoryRoutingDecision
 
 
 class UnifiedMemoryManager:
+    def get_memory_context(
+        self,
+        query: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        intent: Optional[MemoryIntent] = None,
+        goal_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        limit: int = 10
+    ) -> MemoryContext:
+        """
+        Retrieve a MemoryContext object containing relevant episodic, semantic, and procedural memories
+        for the given query/context/intent, filtered by user and goal as needed.
+        This is designed for direct injection into LangGraph nodes.
+        """
+        from app.cognitive.contracts.types import MemoryContext
+        # Route memory query to get relevant types
+        routing_decision = self.router.route_query(query or "", context or {}, intent)
+        from app.cognitive.contracts.types import MemoryObject
+        episodic_memories = []
+        semantic_memories = []
+        procedural_memories = []
+        # For each routed type, query and filter using the correct method
+        for memory_type in routing_decision.primary_memory_types:
+            if memory_type == "episodic":
+                context_filters = context or {}
+                if goal_id:
+                    context_filters = dict(context_filters)
+                    context_filters["goal_id"] = goal_id
+                if user_id:
+                    context_filters = dict(context_filters)
+                    context_filters["user_id"] = user_id
+                events = self.episodic.get_events_by_context(context_filters)[:limit]
+                for event in events:
+                    episodic_memories.append(MemoryObject(
+                        memory_id=getattr(event, 'id', None),
+                        user_id=str(getattr(event, 'user_id', user_id or self.user_id)),
+                        goal_id=event.context.get('goal_id') if hasattr(event, 'context') else None,
+                        type="episodic",
+                        content={
+                            "event_type": getattr(event, 'event_type', None),
+                            "description": getattr(event, 'description', None),
+                            "context": getattr(event, 'context', {}),
+                            "timestamp": getattr(event, 'timestamp', None),
+                            "location": getattr(event, 'location', None),
+                            "mood": getattr(event, 'mood', None),
+                            "participants": getattr(event, 'participants', []),
+                            "outcome": getattr(event, 'outcome', None),
+                            "metadata": getattr(event, 'metadata', {})
+                        },
+                        timestamp=getattr(event, 'timestamp', None)
+                    ))
+            elif memory_type == "semantic":
+                memories = self.semantic.get_memories(limit=limit)
+                for memory in memories:
+                    semantic_memories.append(MemoryObject(
+                        memory_id=getattr(memory, 'memory_id', None),
+                        user_id=str(getattr(memory, 'user_id', user_id or self.user_id)),
+                        goal_id=getattr(memory, 'goal_id', None),
+                        type="semantic",
+                        content=getattr(memory, 'data', {}),
+                        timestamp=getattr(memory, 'timestamp', None)
+                    ))
+            elif memory_type == "procedural":
+                rules = self.procedural.get_applicable_rules(context or {})[:limit]
+                for rule in rules:
+                    procedural_memories.append(MemoryObject(
+                        memory_id=getattr(rule, 'id', None),
+                        user_id=str(getattr(rule, 'user_id', user_id or self.user_id)),
+                        goal_id=getattr(rule, 'goal_id', None),
+                        type="procedural",
+                        content={
+                            "name": getattr(rule, 'name', None),
+                            "description": getattr(rule, 'description', None),
+                            "conditions": getattr(rule, 'conditions', []),
+                            "actions": getattr(rule, 'actions', []),
+                            "priority": getattr(rule, 'priority', None),
+                            "confidence": getattr(rule, 'confidence', None),
+                            "rule_type": getattr(rule, 'rule_type', None),
+                            "success_rate": getattr(rule, 'success_rate', None)
+                        },
+                        timestamp=getattr(rule, 'created_at', None) or datetime.now(timezone.utc)
+                    ))
+            else:
+                # Unsupported or future memory type: log and skip
+                self.logger.warning(f"Memory type '{memory_type}' routed but not implemented in manager. Skipping.")
+                continue
+        # Always return all lists, even if some are empty
+        # (Extensibility: Add new memory types here as needed)
+        return MemoryContext(
+            episodic=episodic_memories,
+            semantic=semantic_memories,
+            procedural=procedural_memories,
+            user_id=user_id or str(self.user_id),
+            timestamp=datetime.now(timezone.utc),
+            source="UnifiedMemoryManager.get_memory_context"
+        )
     """
     Central memory management system that coordinates between all memory types.
     

@@ -270,33 +270,38 @@ LM only triggers the chain, doesn't play any role in routing intelligence yet. W
 
 ---
 
+
 ## Next Steps (Prioritized)
-1. **Review and Refactor `MemoryContext`**
+1. **Add Intent Recognition Node (Entry Point)**
+    - Implement an intent recognition node as the first step in the LangGraph workflow.
+    - Dynamically analyzes every user input to determine intent (e.g., create plan, update task, feedback, etc.).
+    - Routes to the appropriate workflow/chain of nodes, enabling non-linear, conversational, context-aware interaction.
+2. **Review and Refactor `MemoryContext`**
     - Audit and update to support all memory types and node injection.
-2. **Integrate All Memory Types with Router and Node Injection**
+3. **Integrate All Memory Types with Router and Node Injection**
     - Refactor router for episodic, semantic, and procedural memory.
     - Ensure all types are available to nodes via `MemoryContext`.
-3. **Design and Implement New LangGraph Node System**
+4. **Design and Implement New LangGraph Node System**
     - Create `nodes/` folder.
     - Implement nodes for: strategy interpretation, plan outline, task generation, world model integration, calendarization, validation, user confirmation, persistence.
     - Each node should have a clear contract and be testable in isolation.
-4. **Inject `MemoryContext` into Every Node**
+5. **Inject `MemoryContext` into Every Node**
     - Systematically inject and utilize `MemoryContext` in all nodes.
-5. **Wire World Model into Graph Nodes**
+6. **Wire World Model into Graph Nodes**
     - Ensure all relevant nodes receive and update world state as needed.
-6. **Implement LLM-Based Intelligent Memory Routing**
+7. **Implement LLM-Based Intelligent Memory Routing**
     - Replace rule-based routing with LLM-powered context analysis for memory selection.
-7. **Integrate Semantic Memory with Vector DB**
+8. **Integrate Semantic Memory with Vector DB**
     - Complete vector DB setup and connect semantic memory to router and nodes.
-8. **Implement Learning and Feedback Loop**
+9. **Implement Learning and Feedback Loop**
     - Update semantic memory with outcomes and use learned patterns for future planning.
-9. **Add Dialogue and User Feedback Nodes**
+10. **Add Dialogue and User Feedback Nodes**
     - Implement nodes for user clarification, feedback, and corrections.
-10. **Implement Reasoning and Prioritization Logic**
+11. **Implement Reasoning and Prioritization Logic**
      - Add logic for prioritization, plan comparison, and goal tradeoffs.
-11. **Observability, Logging, and Undo/Redo**
+12. **Observability, Logging, and Undo/Redo**
      - Add structured logging and undo/redo to all nodes and tools.
-12. **Remove/Archive/Refactor Legacy Code**
+13. **Remove/Archive/Refactor Legacy Code**
      - Archive or refactor all legacy code in `agent/` and `ai/` folders.
      - Remove or modularize any remaining monolithic planner/task logic.
      - Delete or archive any files not aligned with the new cognitive AI architecture.
@@ -332,3 +337,19 @@ NEXT VERSION: Active Learning Integration
 - Feedback loop for continuous AI improvement
 - Pattern-driven scheduling optimization
 ------------------------------------------------------------
+
+# ============================================================
+# ⚠️ INTELLIGENT DESIGN MANDATE — NO RULE-BASED FALLBACKS ⚠️
+#
+# 🧠 This system MUST default to LLM-powered, adaptive, non-rigid design.
+# 🧠 NO hardcoded, rule-based, if/else logic should be introduced unless explicitly authorized.
+# 🧠 All decisions — memory routing, validation, prioritization, correction — must prefer:
+#     - Conversational, LLM-interpretable logic
+#     - Context-aware reasoning using memory and world state
+#     - Prompt-injected intent classification and decisioning
+#
+# ❌ NO RIGID RULES
+# ✅ YES TO INTELLIGENT, LEARNABLE, LLM-DRIVEN BEHAVIOR
+#
+# 🛡️ Use this as a gatekeeper principle before committing any design or logic pattern.
+# ============================================================
