@@ -283,7 +283,7 @@ LM only triggers the chain, doesn't play any role in routing intelligence yet. W
     - Ensure all types are available to nodes via `MemoryContext`.
 4. **Design and Implement New LangGraph Node System**
     - Create `nodes/` folder.
-    - Implement nodes for: strategy interpretation, plan outline, task generation, world model integration, calendarization, validation, user confirmation, persistence.
+    - Implement nodes for: intent recognition, strategy interpretation, plan outline, task generation, world model integration, calendarization, validation, user confirmation, persistence.
     - Each node should have a clear contract and be testable in isolation.
 5. **Inject `MemoryContext` into Every Node**
     - Systematically inject and utilize `MemoryContext` in all nodes.
@@ -295,8 +295,14 @@ LM only triggers the chain, doesn't play any role in routing intelligence yet. W
     - Complete vector DB setup and connect semantic memory to router and nodes.
 9. **Implement Learning and Feedback Loop**
     - Update semantic memory with outcomes and use learned patterns for future planning.
+    - Implement a self-learning intent discovery pipeline:
+        - Log unknown/novel user intents and ambiguous LLM outputs into semantic memory.
+        - Periodically analyze these logs to discover new intent patterns using clustering, LLM-based summarization, or human review.
+        - Propose and validate new intents, then update the intent list and LLM prompt.
+        - Use outcomes to refine and improve intent recognition and planning.
 10. **Add Dialogue and User Feedback Nodes**
     - Implement nodes for user clarification, feedback, and corrections.
+    - Add dialogue flows to confirm, refine, or reject new intent proposals with the user, closing the learning loop.
 11. **Implement Reasoning and Prioritization Logic**
      - Add logic for prioritization, plan comparison, and goal tradeoffs.
 12. **Observability, Logging, and Undo/Redo**
@@ -353,3 +359,4 @@ NEXT VERSION: Active Learning Integration
 #
 # 🛡️ Use this as a gatekeeper principle before committing any design or logic pattern.
 # ============================================================
+

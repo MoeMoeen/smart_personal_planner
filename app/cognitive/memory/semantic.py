@@ -449,7 +449,7 @@ def create_semantic_memory(user_id: int, db_session: Optional[Session] = None, l
 
 class PatternLearner:
     """
-    Future enhancement: Advanced pattern learning from semantic memory.
+    TODO: Future enhancement: Advanced pattern learning from semantic memory.
     
     Would analyze memories to:
     - Detect scheduling preferences automatically
@@ -462,7 +462,7 @@ class PatternLearner:
 
 class MemoryCompressor:
     """
-    Future enhancement: Compress old memories to save space while preserving insights.
+    TODO: Future enhancement: Compress old memories to save space while preserving insights.
     
     Would:
     - Aggregate similar operations
@@ -474,7 +474,7 @@ class MemoryCompressor:
 
 class LearningLoop:
     """
-    CRITICAL MISSING COMPONENT: AI Learning Integration
+    TODO: CRITICAL MISSING COMPONENT: AI Learning Integration
     
     This class would implement the actual learning mechanism:
     

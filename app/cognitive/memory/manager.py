@@ -69,7 +69,7 @@ class UnifiedMemoryManager:
                             "outcome": getattr(event, 'outcome', None),
                             "metadata": getattr(event, 'metadata', {})
                         },
-                        timestamp=getattr(event, 'timestamp', None)
+                        timestamp=getattr(event, 'timestamp', None) or datetime.now(timezone.utc)
                     ))
             elif memory_type == "semantic":
                 memories = self.semantic.get_memories(limit=limit)
@@ -80,7 +80,7 @@ class UnifiedMemoryManager:
                         goal_id=getattr(memory, 'goal_id', None),
                         type="semantic",
                         content=getattr(memory, 'data', {}),
-                        timestamp=getattr(memory, 'timestamp', None)
+                        timestamp=getattr(memory, 'timestamp', None) or datetime.now(timezone.utc)
                     ))
             elif memory_type == "procedural":
                 rules = self.procedural.get_applicable_rules(context or {})[:limit]
