@@ -4,7 +4,7 @@ Calendarization / Time Allocation Node
 - Returns CalendarizedPlan
 """
 from app.cognitive.contracts.types import OccurrenceTasks, CalendarizedPlan, MemoryContext
-from app.cognitive.world.state import WorldState
+from app.cognitive.world.world_state import WorldState
 
 def calendarization_node(occurrence_tasks: list[OccurrenceTasks], world_state: WorldState, memory_context: MemoryContext) -> CalendarizedPlan:
     """

@@ -23,7 +23,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from .world.updater import WorldUpdater
-from .world.state import CalendarizedTask
+from .world.world_state import CalendarizedTask
 from memory.semantic import SemanticMemory, MemoryPriority
 
 

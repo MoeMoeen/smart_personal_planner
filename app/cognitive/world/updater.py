@@ -21,7 +21,7 @@ from collections import deque
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from .state import CalendarizedTask, WorldState
+from .world_state import CalendarizedTask, WorldState
 from .validator import WorldValidator, ValidationResult
 from .query import WorldQueryEngine
 from app.models import ScheduledTask, CapacitySnapshot

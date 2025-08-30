@@ -9,7 +9,7 @@ from datetime import datetime, date, time, timedelta
 from enum import Enum
 
 from pydantic import BaseModel, Field
-from .state import CalendarizedTask, WorldState, TimeRange
+from .world_state import CalendarizedTask, WorldState, TimeRange
 
 
 class SlotSearchMode(str, Enum):

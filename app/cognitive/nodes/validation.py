@@ -4,7 +4,7 @@ Validation Node
 - Returns PlanVerificationReport
 """
 from app.cognitive.contracts.types import CalendarizedPlan, PlanVerificationReport, MemoryContext
-from app.cognitive.world.state import WorldState
+from app.cognitive.world.world_state import WorldState
 
 def validation_node(calendarized_plan: CalendarizedPlan, world_state: WorldState, memory_context: MemoryContext) -> PlanVerificationReport:
     """

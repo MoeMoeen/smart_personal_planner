@@ -537,7 +537,7 @@ class ScheduledTask(Base):
                 except json.JSONDecodeError:
                     tags_list = []
         
-        from app.cognitive.world.state import CalendarizedTask, TaskStatus
+        from app.cognitive.world.world_state import CalendarizedTask, TaskStatus
         
         # Convert database enum to cognitive enum
         cognitive_status = TaskStatus(self.status.value if hasattr(self.status, 'value') else self.status)

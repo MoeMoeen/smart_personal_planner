@@ -10,7 +10,7 @@ from datetime import datetime, time, timedelta
 import uuid
 
 from pydantic import BaseModel, Field
-from .state import CalendarizedTask, WorldState, WorldStateValidation
+from .world_state import CalendarizedTask, WorldState, WorldStateValidation
 
 
 class ValidationResult(BaseModel):

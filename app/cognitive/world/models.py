@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlalchemy import Column, String, DateTime, Integer, Text, Float
 from sqlalchemy.ext.declarative import declarative_base
 
-from .state import CalendarizedTask
+from .world_state import CalendarizedTask
 
 Base = declarative_base()
 

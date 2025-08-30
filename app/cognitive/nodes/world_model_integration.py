@@ -4,7 +4,7 @@ World Model Integration Node
 - Returns context-enriched OccurrenceTasks
 """
 from app.cognitive.contracts.types import OccurrenceTasks, MemoryContext
-from app.cognitive.world.state import WorldState
+from app.cognitive.world.world_state import WorldState
 
 def world_model_integration_node(occurrence_tasks: list[OccurrenceTasks], world_state: WorldState, memory_context: MemoryContext) -> list[OccurrenceTasks]:
     """
