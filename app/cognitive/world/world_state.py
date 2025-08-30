@@ -1,4 +1,4 @@
-# app/cognitive/world/state.py
+# app/cognitive/world/world_state.py
 
 """World state representation for task management and user availability."""
 
@@ -13,7 +13,7 @@ from enum import Enum
 class TaskStatus(str, Enum):
     """Status of a calendarized task"""
     SCHEDULED = "scheduled"
-    IN_PROGRESS = "in_progress" 
+    IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     OVERDUE = "overdue"
@@ -31,15 +31,16 @@ class CalendarizedTask(BaseModel):
     end_datetime: datetime
     estimated_minutes: int
     status: TaskStatus = TaskStatus.SCHEDULED
-    
+
     # Optional relationships
     cycle_id: Optional[str] = None
     occurrence_id: Optional[str] = None
-    
+
     # Metadata
     priority: Optional[int] = None  # 1-5 scale
     tags: Optional[List[str]] = Field(default_factory=list)
     notes: Optional[str] = None
+    is_user_locked: bool = False  # System must not override
 
 class TimeRange(BaseModel):
     """Represents a time range within a day"""
@@ -60,13 +61,13 @@ class AvailabilityMap(BaseModel):
     Defines when user is available for tasks (e.g., 8am-6pm weekdays).
     """
     user_id: str
-    
+
     # Default weekly pattern
     default_weekly_pattern: Dict[str, List[TimeRange]] = {}  # "monday": [TimeRange(8:00, 18:00)]
-    
+
     # Specific date overrides
     date_specific: List[DayAvailability] = []
-    
+
     # Timezone
     timezone: str = "UTC"
 
@@ -75,7 +76,7 @@ class CapacityConstraints(BaseModel):
     max_hours_per_day: float = 8.0
     max_hours_per_week: float = 40.0
     max_tasks_per_day: int = 10
-    
+
     # Break requirements
     min_break_between_tasks_minutes: int = 15
     max_consecutive_work_hours: float = 4.0  # Must have break after this
@@ -87,10 +88,16 @@ class CapacityMap(BaseModel):
     """
     user_id: str
     constraints: CapacityConstraints
-    
+
     # Current load tracking (calculated from scheduled tasks)
     current_daily_load: Dict[str, float] = {}    # "2025-08-14": 6.5 hours
     current_weekly_load: Dict[str, float] = {}   # "2025-W33": 25.0 hours
+
+class RecurrencePattern(str, Enum):
+    NONE = "none"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
 
 class BlackoutWindow(BaseModel):
     """
@@ -101,7 +108,7 @@ class BlackoutWindow(BaseModel):
     end_datetime: datetime
     reason: str  # "vacation", "meeting", "personal"
     recurring: bool = False
-    recurrence_pattern: Optional[str] = None  # "weekly", "monthly", etc.
+    recurrence_pattern: Optional[RecurrencePattern] = RecurrencePattern.NONE
 
 class WorldState(BaseModel):
     """
@@ -109,20 +116,28 @@ class WorldState(BaseModel):
     Provides global view of all tasks, availability, and constraints.
     """
     user_id: str
-    
+
     # All scheduled tasks across all goals/plans
     all_tasks: List[CalendarizedTask] = []
-    
+
     # User's availability and capacity
     availability: AvailabilityMap
     capacity: CapacityMap
-    
+
     # Future: blackout windows
     blackouts: List[BlackoutWindow] = []
-    
+
     # Metadata
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     version: str = "1.0"
+
+    def summary(self):
+        return {
+            "total_tasks": len(self.all_tasks),
+            "blackout_days": len(self.blackouts),
+            "timezone": self.availability.timezone,
+            "last_updated": self.last_updated.isoformat()
+        }
 
 class TaskConflict(BaseModel):
     """Represents a scheduling conflict between tasks"""
@@ -154,8 +169,8 @@ def create_default_availability(user_id: str) -> AvailabilityMap:
             "wednesday": [TimeRange(start_time=time(9, 0), end_time=time(18, 0))],
             "thursday": [TimeRange(start_time=time(9, 0), end_time=time(18, 0))],
             "friday": [TimeRange(start_time=time(9, 0), end_time=time(18, 0))],
-            "saturday": [],  # Weekend off by default
-            "sunday": []     # Weekend off by default
+            "saturday": [],
+            "sunday": []
         },
         timezone="UTC"
     )
@@ -165,8 +180,8 @@ def create_default_capacity(user_id: str) -> CapacityMap:
     return CapacityMap(
         user_id=user_id,
         constraints=CapacityConstraints(
-            max_hours_per_day=6.0,      # 6 hours per day
-            max_hours_per_week=30.0,    # 30 hours per week  
+            max_hours_per_day=6.0,
+            max_hours_per_week=30.0,
             max_tasks_per_day=8,
             min_break_between_tasks_minutes=15,
             max_consecutive_work_hours=3.0

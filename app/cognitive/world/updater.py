@@ -375,7 +375,7 @@ class WorldUpdater:
             internal_conflicts = self._check_plan_internal_conflicts(tasks)
             if internal_conflicts:
                 invalid_tasks.extend(internal_conflicts.keys())
-            
+
             if invalid_tasks:
                 return UpdateResult(
                     success=False,

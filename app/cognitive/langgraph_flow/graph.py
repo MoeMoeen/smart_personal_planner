@@ -1,54 +1,66 @@
 # app/cognitive/langgraph_flow/graph.py
 
-"""
-LangGraph node system scaffold for modular, LLM-driven cognitive AI.
-This is a clean, modern implementation (legacy agent/graph/tools are not used).
-"""
+from langgraph.graph import StateGraph
+from app.cognitive.langgraph_flow.state import GraphState
+from app.cognitive.langgraph_flow.tools import detect_intent
+# TODO: Import all node functions as implemented
 
-from typing import Any, Dict
-from langgraph.graph import StateGraph, END
-from app.cognitive.nodes.intent_recognition import IntentRecognitionNode
-from app.cognitive.contracts.results import IntentResult
+# Node name constants for maintainability
+NODE_INTENT_RECOGNITION = "intent_recognition"
+NODE_STRATEGY_INTERPRETATION = "strategy_interpretation"
+NODE_PLAN_OUTLINE = "plan_outline"
+NODE_USER_CONFIRM_A = "user_confirm_a"
+NODE_TASK_GENERATION = "task_generation"
+NODE_WORLD_MODEL = "world_model_integration"
+NODE_CALENDARIZE = "calendarization"
+NODE_VALIDATION = "validation"
+NODE_USER_CONFIRM_B = "user_confirm_b"
+NODE_PERSISTENCE = "persistence"
+NODE_ROUTER = "router"
 
+def build_langgraph():
+    builder = StateGraph(GraphState)
 
-# --- LangGraph workflow setup ---
-def build_cognitive_graph(memory_context):
-    """
-    Build a LangGraph workflow with intent recognition as the entry point.
-    Returns a LangGraph workflow ready for execution.
-    """
-    # 1. Define the state schema (can be extended for more nodes/branches)
-    class CognitiveState(dict):
-        """State object passed between nodes. Extend as needed."""
-        pass
+    # --- Add all core nodes (stubs for now) ---
+    builder.add_node(NODE_INTENT_RECOGNITION, detect_intent)
+    builder.add_node(NODE_STRATEGY_INTERPRETATION, lambda *a, **kw: None)  # TODO: Replace stub
+    builder.add_node(NODE_PLAN_OUTLINE, lambda *a, **kw: None)  # TODO: Replace stub
+    builder.add_node(NODE_USER_CONFIRM_A, lambda *a, **kw: None)  # TODO: Replace stub
+    builder.add_node(NODE_TASK_GENERATION, lambda *a, **kw: None)  # TODO: Replace stub
+    builder.add_node(NODE_WORLD_MODEL, lambda *a, **kw: None)  # TODO: Replace stub
+    builder.add_node(NODE_CALENDARIZE, lambda *a, **kw: None)  # TODO: Replace stub
+    builder.add_node(NODE_VALIDATION, lambda *a, **kw: None)  # TODO: Replace stub
+    builder.add_node(NODE_USER_CONFIRM_B, lambda *a, **kw: None)  # TODO: Replace stub
+    builder.add_node(NODE_PERSISTENCE, lambda *a, **kw: None)  # TODO: Replace stub
+    builder.add_node(NODE_ROUTER, lambda *a, **kw: None)  # TODO: Replace stub
 
-    # 2. Define the intent recognition node as a LangGraph node
-    def intent_recognition_node(state: CognitiveState) -> CognitiveState:
-        user_input = state.get("user_input")
-        if user_input is None:
-            user_input = ""
-        node = IntentRecognitionNode(memory_context=memory_context)
-        result: IntentResult = node.run(user_input)
-        state["intent_result"] = result
-        return state
+    # --- Define transitions and branching logic ---
+    # Entry point: always start with intent recognition
+    builder.set_entry_point(NODE_INTENT_RECOGNITION)
 
-    # 3. Build the LangGraph workflow
-    workflow = StateGraph(CognitiveState)
-    workflow.add_node("intent_recognition", intent_recognition_node)
-    # For now, end after intent recognition; add more nodes/branches as needed
-    workflow.set_entry_point("intent_recognition")
-    workflow.add_edge("intent_recognition", END)
-    return workflow.compile()
+    # Core flow transitions (linear for now, dynamic routing via router node in future)
+    builder.add_edge(NODE_INTENT_RECOGNITION, NODE_STRATEGY_INTERPRETATION)
+    builder.add_edge(NODE_STRATEGY_INTERPRETATION, NODE_PLAN_OUTLINE)
+    builder.add_edge(NODE_PLAN_OUTLINE, NODE_USER_CONFIRM_A)
+    # User confirmation A: branch based on user feedback (stubbed)
+    builder.add_edge(NODE_USER_CONFIRM_A, NODE_TASK_GENERATION)  # If confirmed
+    builder.add_edge(NODE_USER_CONFIRM_A, NODE_ROUTER)           # If rejected (dynamic routing)
+    builder.add_edge(NODE_ROUTER, NODE_PLAN_OUTLINE)             # Example: router can re-run plan outline
+    builder.add_edge(NODE_TASK_GENERATION, NODE_WORLD_MODEL)
+    builder.add_edge(NODE_WORLD_MODEL, NODE_CALENDARIZE)
+    builder.add_edge(NODE_CALENDARIZE, NODE_VALIDATION)
+    builder.add_edge(NODE_VALIDATION, NODE_USER_CONFIRM_B)
+    # User confirmation B: branch based on user feedback (stubbed)
+    builder.add_edge(NODE_USER_CONFIRM_B, NODE_PERSISTENCE)      # If confirmed
+    builder.add_edge(NODE_USER_CONFIRM_B, NODE_ROUTER)           # If rejected (dynamic routing)
+    builder.add_edge(NODE_ROUTER, NODE_TASK_GENERATION)          # Example: router can re-run task generation
 
-# Usage example (for test/demo):
-# from app.cognitive.contracts.types import MemoryContext
-# memory_context = MemoryContext(...)
-# workflow = build_cognitive_graph(memory_context)
-# result = workflow.invoke({"user_input": "I want to create a new plan for my fitness goal."})
-# print(result["intent_result"])
+    # Set finish point
+    builder.set_finish_point(NODE_PERSISTENCE)
 
-# Usage example (for test/demo):
-# from app.cognitive.contracts.types import MemoryContext
-# memory_context = MemoryContext(...)
-# graph = build_cognitive_graph(memory_context)
-# result = graph.run(user_input, context={})
+    # --- Comments for future expansion ---
+    # TODO: Implement dynamic mini-intent detection and router logic
+    # TODO: Replace all lambda stubs with real node implementations
+    # TODO: Add conversation node for mini-intents and topic switching
+
+    return builder.compile()
