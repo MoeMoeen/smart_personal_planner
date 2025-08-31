@@ -6,34 +6,42 @@ Prompt utilities for intent recognition and LLM prompt construction.
 - MemoryContext summarization kept minimal & safe
 """
 
+# =============================
+# app/cognitive/utils/prompt_utils.py
+# =============================
 from __future__ import annotations
 from typing import List, Dict, Any
 import json
 
 from app.cognitive.contracts.types import MemoryContext
-from app.cognitive.brain.intent_registry import SUPPORTED_INTENTS  # [{name, description, ...}]
+from app.cognitive.brain.intent_registry import SUPPORTED_INTENTS  # list[dict]
 
 PROMPT_VERSION = "intent_planning_v1"
 
-def build_intent_prompt(user_input: str, memory_context: MemoryContext) -> str:
-    """
-    Build the LLM prompt for intent recognition & planning.
-    Returns a single string suitable for a system or user message, depending on your LLM backend.
-    The response must be valid JSON ONLY (no prose).
-    """
-    template = _get_prompt_template()
-    intents = _get_intents_for_prompt()
-    memory_summary = _summarize_memory_context(memory_context)
-    prompt = template.format(
-        intents=intents,
-        user_message=user_input,
-        memory_summary=memory_summary,
-        prompt_version=PROMPT_VERSION
-    )
-    return prompt
+# --- Public API (messages-first) -------------------------------------------------------
 
-def _get_prompt_template() -> str:
-    return """
+def build_intent_messages(user_input: str, memory_context: MemoryContext) -> List[Dict[str, str]]:
+    """Return OpenAI-style chat messages (system + user) for intent detection.
+
+    Use with LLM backend like:
+        backend.chat(messages=build_intent_messages(msg, mem_ctx), temperature=0)
+    """
+    system_text = _get_system_instruction()
+    user_text = _format_user_block(user_input, memory_context)
+    return [
+        {"role": "system", "content": system_text},
+        {"role": "user", "content": user_text},
+    ]
+
+# Backward-compatible (single-string) variant
+
+def build_intent_prompt(user_input: str, memory_context: MemoryContext) -> str:
+    return _get_system_instruction() + "\n\n" + _format_user_block(user_input, memory_context)
+
+# --- Internals ------------------------------------------------------------------------
+
+def _get_system_instruction() -> str:
+    return f"""
 You are the Intent Brain for a Smart Personal Planner. Read the user message and the memory summary.
 1) Decide the single BEST intent from the supported list.
 2) Extract any parameters needed to fulfill the intent.
@@ -50,13 +58,7 @@ Schema:
 }}
 
 Supported intents:
-{intents}
-
-User message:
-{user_message}
-
-Memory summary (truncated):
-{memory_summary}
+{_get_intents_for_prompt()}
 
 Output rules:
 - JSON only
@@ -65,11 +67,18 @@ Output rules:
 - confidence in [0.0, 1.0]
 - Append no trailing commentary.
 
-# Prompt-Version: {prompt_version}
+# Prompt-Version: {PROMPT_VERSION}
 """.strip()
 
+def _format_user_block(user_input: str, memory_context: MemoryContext) -> str:
+    memory_summary = _summarize_memory_context(memory_context)
+    return (
+        "User message:\n" + user_input + "\n\n" +
+        "Memory summary (truncated):\n" + memory_summary
+    )
+
 def _get_intents_for_prompt() -> str:
-    lines: List[str] = []
+    lines = []
     for item in SUPPORTED_INTENTS:
         name = item.get("name") or ""
         desc = item.get("description") or ""
@@ -77,18 +86,11 @@ def _get_intents_for_prompt() -> str:
     return "\n".join(lines)
 
 def _summarize_memory_context(memory_context: MemoryContext) -> str:
-    """
-    Keep it compact to avoid prompt bloat. Only top signals.
-    """
     try:
         summary: Dict[str, Any] = {
             "user_id": getattr(memory_context, "user_id", None),
-            "recent_events": [
-                getattr(m, "content", {}) for m in (getattr(memory_context, "episodic", []) or [])[:3]
-            ],
-            "preferences": [
-                getattr(m, "content", {}) for m in (getattr(memory_context, "semantic", []) or [])[:3]
-            ],
+            "recent_events": [getattr(m, "content", {}) for m in (getattr(memory_context, "episodic", []) or [])[:3]],
+            "preferences": [getattr(m, "content", {}) for m in (getattr(memory_context, "semantic", []) or [])[:3]],
             "rules": [
                 {
                     "name": (getattr(m, "content", {}) or {}).get("name"),
@@ -100,5 +102,6 @@ def _summarize_memory_context(memory_context: MemoryContext) -> str:
         }
         return json.dumps(summary, ensure_ascii=False)
     except Exception:
-        # Fail-closed to a minimal summary if unexpected structures appear.
         return json.dumps({"user_id": getattr(memory_context, "user_id", None)})
+
+
