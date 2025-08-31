@@ -1,7 +1,7 @@
 # app/cognitive/langgraph_flow/graph.py
 
 from langgraph.graph import StateGraph
-from app.cognitive.langgraph_flow.state import GraphState
+from app.cognitive.state.graph_state import GraphState
 from app.cognitive.langgraph_flow.tools import detect_intent
 # TODO: Import all node functions as implemented
 

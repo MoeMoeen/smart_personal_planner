@@ -3,7 +3,7 @@
 
 import logging
 from langchain_core.tools import tool
-from app.cognitive.nodes.intent_recognition import intent_recognition_node
+from app.cognitive.brain.intent_recognition.intent_recognition_node import intent_recognition_node
 from app.cognitive.contracts.types import MemoryContext
 from app.cognitive.contracts.results import IntentResult
 

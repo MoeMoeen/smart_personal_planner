@@ -1,5 +1,4 @@
-# app/cognitive/langgraph_flow/state.py
-
+# app/cognitive/state/graph_state.py
 
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any, List

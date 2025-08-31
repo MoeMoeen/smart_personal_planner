@@ -7,7 +7,7 @@ This is a clean, modern implementation (legacy agent/graph/tools are not used).
 
 from typing import Any, Dict
 from langgraph.graph import StateGraph, END
-from app.cognitive.nodes.intent_recognition import IntentRecognitionNode
+from app.cognitive.brain.intent_recognition.intent_recognition_node import IntentRecognitionNode
 from app.cognitive.contracts.results import IntentResult
 
 

@@ -5,8 +5,9 @@ Decorator utilities for LLM robustness: retry, timing, logging, and cost trackin
 import time
 import logging
 from functools import wraps
+import random
 
-def llm_retry_and_log(max_retries=3, delay=1.0, logger_name="llm_call"):
+def llm_retry_and_log(max_retries=3, base_delay=1.0, logger_name="llm_call"):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -39,6 +40,7 @@ def llm_retry_and_log(max_retries=3, delay=1.0, logger_name="llm_call"):
                             "error": str(e)
                         })
                         raise
-                    time.sleep(delay)
+                    # Exponential backoff with jitter
+                    time.sleep(base_delay * (2 ** (attempt-1)) + random.uniform(0, 0.25))
         return wrapper
     return decorator

@@ -1,4 +1,6 @@
-# app/cognitive/contracts/intents.py
+# app/cognitive/brain/intent_registry.py
+# canonical intents, synonyms, examples (knowledge)
+
 # Centralized intent registry for the cognitive AI system
 
 SUPPORTED_INTENTS = [

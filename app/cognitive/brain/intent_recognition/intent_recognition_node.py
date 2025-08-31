@@ -1,4 +1,4 @@
-# app/cognitive/nodes/intent_recognition.py
+# app/brain/intent_recognition/intent_recognition_node.py
 """
 TODO: Self-Learning Intent Discovery Pipeline (Design Note):
 -----------------------------------------------------
@@ -27,7 +27,7 @@ from app.cognitive.memory.semantic import create_semantic_memory
 
 
 # --- Class-based node for graph integration ---
-from app.cognitive.langgraph_flow.base import BaseNode
+from app.cognitive.nodes.base_node import BaseNode
 
 class IntentRecognitionNode(BaseNode[IntentResult]):
     """LLM-based intent recognition node for CognitiveGraph."""
@@ -64,12 +64,12 @@ INTENT_SCHEMA = {
 }
 
 
-@llm_retry_and_log(max_retries=3, delay=1.0, logger_name="llm_call")
+@llm_retry_and_log(max_retries=3, base_delay=1.0, logger_name="llm_call")
 def _call_openai_llm(user_input: str, memory_context: MemoryContext) -> LLMResponse:
     # Compose the full prompt using the prompt_utils helper
     full_prompt = build_intent_prompt(user_input, memory_context)
     backend = get_llm_backend()
-    response = backend.call(full_prompt)
+    response = backend.chat(messages=[{"role": "user", "content": full_prompt}])
     if response and response.content:
         return response
     else:
