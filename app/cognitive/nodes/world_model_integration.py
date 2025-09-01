@@ -1,20 +1,21 @@
+# app/cognitive/nodes/world_model_integration.py
 """
 World Model Integration Node
 - Injects up-to-date world state (tasks, availability, capacity)
 - Returns context-enriched OccurrenceTasks
 """
-from app.cognitive.contracts.types import OccurrenceTasks, MemoryContext
-from app.cognitive.world.world_state import WorldState
+# =============================
+# app/nodes/world_model_integration.py
+# =============================
+from __future__ import annotations
+from typing import Any, Dict
 
-def world_model_integration_node(occurrence_tasks: list[OccurrenceTasks], world_state: WorldState, memory_context: MemoryContext) -> list[OccurrenceTasks]:
-    """
-    Stub for world model integration node.
-    Args:
-        occurrence_tasks: Tasks for each occurrence
-        world_state: Current global world state
-        memory_context: Injected memory context
-    Returns:
-        List[OccurrenceTasks]: Context-enriched tasks
-    """
-    # TODO: Implement world state injection and enrichment
-    raise NotImplementedError("World model integration node not implemented yet.")
+def world_model_integration(state: Dict[str, Any]) -> Dict[str, Any]:
+    history = state.setdefault("execution_history", [])
+    history.append({"node": "world_model_integration"})
+
+    # TODO: Stub: annotate tasks with fake constraints summary
+    tasks = state.get("tasks", [])
+    state["wm_enriched"] = {"tasks_count": len(tasks), "constraints": {"work_hours": "9-5", "blackouts": []}}
+    state["last_node"] = "world_model_integration"
+    return state

@@ -39,3 +39,13 @@ def user_confirm_a(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # In a richer flow, a conditional edge would branch here. For v0 linear demo, just record.
     return state
+
+def user_confirm_b(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Demo: auto-confirm unless caller set `force_reject_b=True` in state."""
+    history = state.setdefault("execution_history", [])
+    history.append({"node": "user_confirm_b"})
+
+    confirmed = not state.get("force_reject_b", False)
+    state["confirm_b"] = bool(confirmed)
+    state["last_node"] = "user_confirm_b"
+    return state

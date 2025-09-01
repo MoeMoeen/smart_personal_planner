@@ -249,7 +249,191 @@ def intent_recognition():
 
 
 
+### Global Brain vs Local Mini Brains
 
+---
+
+## 1) where do the “parameters” come from?
+
+* **not preset** (not a static list of keys).
+* the **intent recognition brain (LLM)** decides on the fly what parameters to output, based on the user message.
+* but we give it a **schema** in the prompt: always return JSON with at least `"intent"` + `"parameters": {}`.
+* inside `"parameters"`, the model is free to include whatever keys/values it thinks are relevant.
+
+example:
+
+user says: *“remove all tasks in 3rd week of September and shorten goal A tasks”*
+
+intent recognition LLM outputs:
+
+```json
+{
+  "intent": "refine_tasks",
+  "parameters": {
+    "remove_date_range": "2025-09-15 to 2025-09-21",
+    "adjust_goal_A": {"factor": 0.8}
+  },
+  "confidence": 0.92,
+  "notes": "User requested blackout in September and duration adjustment for goal A"
+}
+```
+
+→ here `"remove_date_range"` and `"adjust_goal_A"` are **not hardcoded**.
+the LLM invented them to structure the feedback.
+later, the node (or sub-agent inside it) interprets these keys to decide which tools to use.
+
+---
+
+## 2) who decides which tools are available in `task_generation`?
+
+this is about **scope of tools**.
+
+* each node can declare its **own toolset**.
+  e.g., `task_generation` node might register these:
+
+  * `remove_tasks_by_date`
+  * `adjust_task_duration`
+  * `add_task`
+  * `merge_tasks`
+
+* when the node spins up a sub-agent (LLM), it hands the LLM **this toolset**.
+
+* the LLM then decides **which of these tools to call, with which parameters**, based on the `"parameters"` it received from the brain + the raw user feedback.
+
+so:
+
+1. **global brain (intent recognition)**:
+   decides: *“we are still in the `task_generation` stage; here’s the structured feedback parameters.”*
+
+2. **local micro-brain inside task\_generation node**:
+
+   * sees those parameters,
+   * has access to a toolbox (remove/adjust/etc.),
+   * decides: *“ah, to satisfy ‘remove\_date\_range’ I must call `remove_tasks_by_date`.
+     to satisfy ‘adjust\_goal\_A’ I must call `adjust_task_duration`.”*
+
+3. **tools** execute the actual domain logic (ORM updates, WorldUpdater ops, Memory logging).
+
+---
+
+✅ so your assumption is correct:
+
+* the LLM inside the node should have access to **all tools relevant for that node**.
+* it will pick and call the ones it needs.
+* the outer brain doesn’t micromanage which exact tool to use, it only says *“route back into task\_generation with these feedback params”*.
+* the micro-brain does the surgical work.
+
+---
+
+💡 think of it like layers of command:
+
+* **outer brain** = a general (decides which battlefield to fight on).
+* **node’s micro-brain** = a field commander with a toolbox of tactics.
+* **tools** = the actual soldiers carrying out the tactical actions.
+
+---
+
+
+## 🌍 The Misalignment Problem
+
+* **global brain (general)**: knows the **conversation history**, **user preferences**, **world model**, **memory** → can reason across all goals.
+* **local micro-brains (field commanders)**: only see the **immediate node scope** (tasks, outline). if left isolated, they can make decisions that clash with the big picture.
+
+→ result: fragmentation.
+the outline might reflect preferences, but the task adjustments might ignore them. tasks may optimize locally but hurt other goals globally. exactly the silo effect you fear.
+
+---
+
+## 🛠️ the solution: structured communication
+
+to prevent silos, we enforce **two-way communication** between global and local brains:
+
+### 1. global brain → local micro-brain
+
+* when the global brain routes into a node, it doesn’t just say: *“go to task\_generation with parameters.”*
+* it also passes **context bundles**: memory summary, preferences, constraints, higher-level intent.
+
+so the local agent **always starts with global context**.
+
+```json
+{
+  "intent": "refine_tasks",
+  "parameters": {"feedback": "..."},
+  "context": {
+    "user_preferences": {...},
+    "blackout_periods": [...],
+    "conversation_summary": "...",
+    "linked_goals": ["fitness", "career"]
+  }
+}
+```
+
+### 2. local micro-brain → global brain
+
+* when the node finishes, it doesn’t just return “tasks”.
+* it also reports a **summary of what actions it took**.
+* e.g.: “removed 3 tasks from week of Sep 15; shortened durations for Goal A by 20%.”
+
+this is fed back into **global memory** (semantic + episodic) so the global brain learns what happened.
+
+---
+
+## 🔄 continuous alignment loop
+
+* **global → local**: context injection.
+* **local → global**: action reporting (structured logs + summaries).
+* **memory layer**: keeps both sides in sync, so that at the next user message, the global brain knows exactly what each local micro-brain has already done.
+
+---
+
+## 🧩 practical design patterns
+
+1. **contracts (schemas)**
+
+   * every node (esp. micro-brain nodes) must take a `context` object and return an `outcome` object with `summary` + `actions`.
+   * this enforces structured handshakes.
+
+2. **shared world model**
+
+   * both global and local brains read/write from the **same world model state**.
+   * e.g., blackout periods, user preferences, priorities → live in `WorldState`.
+   * nodes can’t ignore them because they’re part of the state they operate on.
+
+3. **semantic memory logging**
+
+   * local node logs each change into semantic memory.
+   * global brain has access to those logs when interpreting the next user message.
+
+---
+
+## 🎯 example flow (your September scenario)
+
+1. user: *“remove tasks from 3rd week of September, shorten goal A tasks, extend goal B.”*
+2. **intent recognition brain**:
+
+   * intent = `refine_tasks`
+   * parameters = {date\_range: Sep15–Sep21, adjust\_goal\_A: 0.8, adjust\_goal\_B: 1.2}
+   * context injected = blackout periods, user prefs, linked goals.
+   * → routes to `task_generation` node.
+3. **task\_generation micro-brain**:
+
+   * sees context (knows blackout = Sep15–21 already in world model)
+   * decides: call `remove_tasks_by_date`, `adjust_task_duration` twice.
+   * returns tasks + summary: “removed X tasks, adjusted durations A/B.”
+4. **global brain** logs this outcome into memory + world model.
+
+   * next time, if user says: *“why did you change my tasks?”* → global brain can explain, because it has the action summary from the node.
+
+---
+
+## 🔒 why this works
+
+* local brains never act in isolation: they’re seeded with **global context**.
+* global brain never loses track: every local action is summarized back.
+* memory + world model act as the **shared substrate**.
+* contracts enforce that communication is always structured, not ad-hoc.
+
+---
 
 
 ### Master Action Plan

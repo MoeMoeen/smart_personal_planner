@@ -1,7 +1,8 @@
+# app/agent/tools/planning_tools.py
 """
-LangGraph Tool Wrappers for Smart Personal Planner
+Agent Tool Wrappers for Smart Personal Planner
 
-Exposes WorldUpdater operations as LangGraph tools with full observability.
+Exposes WorldUpdater operations as Agent tools with full observability.
 This enables the AI agent to interact with the planning system while maintaining
 complete traceability and learning from interactions.
 
@@ -22,9 +23,9 @@ from functools import wraps
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from .world.updater import WorldUpdater
-from .world.world_state import CalendarizedTask
-from memory.semantic import SemanticMemory, MemoryPriority
+from ...cognitive.world.updater import WorldUpdater
+from ...cognitive.world.world_state import CalendarizedTask
+from ...cognitive.memory.semantic import SemanticMemory, MemoryPriority
 
 
 # === TOOL INPUT SCHEMAS ===
