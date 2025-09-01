@@ -11,11 +11,14 @@ from typing import Any, Callable
 from langgraph.graph import StateGraph, END
 
 class LangGraphBuilderAdapter:
-    """GraphBuilder-compatible adapter around LangGraph's StateGraph.
+    """
+    GraphBuilder-compatible adapter around LangGraph's StateGraph.
 
-    - Sets entry point on the first added node (typical for linear flows).
-    - `add_edge(src, "END")` is supported and maps to `END`.
-    - `build()` returns the compiled, runnable graph.
+    - First added node becomes entry point
+    - add_edge supports "END"
+    - add_conditional_router(node, route_func): installs a router using add_conditional_edges
+      The router is a callable(state) -> str that returns the NEXT node name.
+      (If your LangGraph version requires a key-to-destination mapping, see the note below.)
     """
 
     def __init__(self, state_type: type):
@@ -33,6 +36,15 @@ class LangGraphBuilderAdapter:
             self._sg.add_edge(src, END)
         else:
             self._sg.add_edge(src, dst)
+
+    def add_conditional_router(self, node: str, route_func: Callable[[Any], str]) -> None:
+        """
+        Install a router at `node` that returns the next node name.
+        If your LangGraph version expects (router, mapping), you can wrap like:
+            self._sg.add_conditional_edges(node, lambda s: route_func(s), {})
+        and ensure all possible destinations are already added as nodes.
+        """
+        self._sg.add_conditional_edges(node, route_func)
 
     def build(self):
         return self._sg.compile()

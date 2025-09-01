@@ -7,23 +7,17 @@ object (builder.build()) with edges wired in the correct order. Designed to work
 an adapter, but decoupled for testability. Includes hooks for observability and guardrails for
 cycles/missing nodes/dependencies.
 
-✅ Why this design?
+This version includes OPTIONAL conditional routers: you can attach a router callable to any node.
+If a node has a router, the compiler will install it (via the builder) instead of a linear edge.
+
+Why this design?
 - Stateless: easy to reuse and test; no hidden global state.
-- Registry-driven: LLM (or deterministic map) can propose sequences by name; compiler resolves details.
+- Registry-driven (NodeSpec below): LLM (or deterministic map) can propose sequences by name; compiler resolves details.
 - Safe-by-default: verifies nodes exist, inserts missing dependencies (optional), checks for cycles.
-- Extensible: pre/post hooks for logging/metrics/tracing; pluggable GraphBuilder adapter.
+- Extensible: pre/post hooks for logging/metrics/tracing/observability; pluggable GraphBuilder adapter.
 - Deterministic: stable ordering with dependency-first resolution, then planned sequence.
-
-This file is a single, self-contained module for the first implementation step. In the repo, we
-recommend placing it at: `app/flow/flow_compiler.py` and introducing the adapter and registry
-modules next (`app/flow/registry.py`, `app/flow/adapters/langgraph_adapter.py`).
-
-Next steps (separate files, not implemented here):
-- app/cognitive/langgraph_flow/registry.py            → NodeSpec dataclass + registry helpers/decorators
-- app/cognitive/langgraph_flow/intent_routes.py       → DEFAULT_FLOW_REGISTRY (fallback deterministic flows)
-- app/cognitive/langgraph_flow/adapters/langgraph.py  → LangGraphBuilderAdapter (wraps langgraph StateGraph)
-- app/nodes/...                   → concrete node callables to be registered
-
+- Dependency expansion (deps run before dependents)
+- Optional: conditional_routers={"user_confirm_a": route_after_confirm_a}
 """
 from __future__ import annotations
 
@@ -57,7 +51,7 @@ class NodeSpec:
     outputs: List[str] = field(default_factory=list)
     dependencies: List[str] = field(default_factory=list)
     entrypoint: Optional[Callable[..., Any]] = None
-    entrypoint_path: Optional[str] = None  # e.g., "app.nodes.plan:plan_outline_node"
+    entrypoint_path: Optional[str] = None  # e.g., "app.nodes.plan:plan_outline_node" # "module:attr"
     latency_ms: Optional[int] = None
     cost_estimate: Optional[float] = None
     memory: Optional[str] = None
@@ -68,7 +62,12 @@ Registry = Dict[str, NodeSpec]
 
 @dataclass
 class CompileOptions:
-    """Toggles & hooks to customize compilation behavior."""
+    """
+    Toggles & hooks to customize compilation behavior.
+    [NEW] conditional_routers: mapping of node_name -> router(state) -> str (next node name)
+
+    TODO: write all the options logic via corresponding methods.
+    """
 
     insert_missing_dependencies: bool = True
     verify_cycles: bool = True
@@ -76,7 +75,7 @@ class CompileOptions:
     pre_hook: Optional[Callable[[str, Dict[str, Any]], None]] = None
     post_hook: Optional[Callable[[str, Dict[str, Any], Any], None]] = None
     callable_resolver: Optional[Callable[[NodeSpec], Callable[..., Any]]] = None
-
+    conditional_routers: Optional[Dict[str, Callable[[Any], str]]] = None  # <— NEW
 
 # --------------------------------------------------------------------------------------
 # GraphBuilder protocol + lightweight in-memory builder for tests/examples
@@ -100,20 +99,20 @@ class InMemoryGraphBuilder:
     def __init__(self) -> None:
         self.nodes: Dict[str, Callable[..., Any]] = {}
         self.edges: List[Tuple[str, str]] = []
+        self.routers: Dict[str, Callable[[Any], str]] = {}
 
     def add_node(self, name: str, func: Callable[..., Any]) -> None:
-        if name in self.nodes:
-            logger.debug("Node '%s' already present; overwriting callable.", name)
         self.nodes[name] = func
 
     def add_edge(self, src: str, dst: str) -> None:
-        if (src, dst) in self.edges:
-            logger.debug("Duplicate edge (%s -> %s) ignored.", src, dst)
-            return
-        self.edges.append((src, dst))
+        if (src, dst) not in self.edges:
+            self.edges.append((src, dst))
+
+    def add_conditional_router(self, node: str, route_func: Callable[[Any], str]) -> None:
+        self.routers[node] = route_func
 
     def build(self) -> Dict[str, Any]:
-        return {"nodes": self.nodes, "edges": list(self.edges)}
+        return {"nodes": self.nodes, "edges": list(self.edges), "routers": dict(self.routers)}
 
 
 # --------------------------------------------------------------------------------------
@@ -198,17 +197,26 @@ class FlowCompiler:
             wrapped = self._wrap_with_hooks(name, func, options)
             builder.add_node(name, wrapped)
 
-        # Add linear edges (S→S+1). Branching/conditional edges can be added in future versions.
-        for i in range(len(ordered) - 1):
-            builder.add_edge(ordered[i], ordered[i + 1])
+        # Add edges or routers
+        cond = options.conditional_routers or {}
+        for i, src in enumerate(ordered):
+            # If this node has a router, install it instead of a single linear edge
+            if src in cond and hasattr(builder, "add_conditional_router"):
+                # install router (it decides the next node at runtime)
+                getattr(builder, "add_conditional_router")(src, cond[src])
+                continue
+
+            # Otherwise add linear edge to next node (if any)
+            if i < len(ordered) - 1:
+                builder.add_edge(src, ordered[i + 1])
 
         compiled = builder.build()
-        logger.debug("Compilation complete. Nodes=%d Edges=%d", len(ordered), len(getattr(builder, 'edges', [])))
+        logger.debug("Compilation complete. Nodes=%d", len(ordered))
         return compiled
 
     # ----- internals ----------------------------------------------------------
     def _resolve_order(self, plan: List[str], registry: Registry, insert_missing: bool) -> List[str]:
-        """Ensure all dependencies appear before dependents.
+        """Topological expansion: Ensure all dependencies appear before dependents.
 
         Algorithm: DFS over dependencies for each planned node (classic topo expansion). De-dupe while
         preserving first occurrence order. If `insert_missing=False`, we only verify relative order and
@@ -272,7 +280,10 @@ class FlowCompiler:
         return ordered
 
     def _verify_no_cycles(self, ordered: List[str], registry: Registry) -> None:
-        """Detect cycles limited to dependency graph (not runtime conditional edges)."""
+        """
+        Detect cycles limited to dependency graph (not runtime conditional edges).
+        Cycle check using Kahn's algorithm over dependency edges.
+        """
         # Build adjacency from dependencies only
         adj: Dict[str, List[str]] = {n: [] for n in ordered}
         indeg: Dict[str, int] = {n: 0 for n in ordered}

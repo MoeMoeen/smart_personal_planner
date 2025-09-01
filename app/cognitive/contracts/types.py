@@ -2,7 +2,7 @@
 """Data models for the cognitive architecture of the smart personal planner."""
 
 from typing import List, Literal, Optional, Union
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pydantic import BaseModel, Field
 
 # === CORE PLANNING CONTRACTS ===
@@ -69,7 +69,7 @@ class MemoryObject(BaseModel):
     goal_id: Optional[str] = None
     type: Literal["episodic", "semantic", "procedural"]
     content: Union[str, dict]
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Optional[dict] = {}
 
 # Memory Context - This represents the context in which memories are stored and retrieved
@@ -84,7 +84,7 @@ class MemoryContext(BaseModel):
     # Optional metadata for traceability and context
     user_id: Optional[str] = None
     session_id: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: Optional[str] = None
     
     def add_memory(self, memory: MemoryObject):

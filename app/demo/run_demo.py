@@ -12,7 +12,7 @@ from app.flow.flow_compiler import FlowCompiler, CompileOptions
 from app.flow.adapters.langgraph_adapter import LangGraphBuilderAdapter
 from app.flow.registry import NODE_REGISTRY
 from app.flow.intent_routes import DEFAULT_FLOW_REGISTRY
-from app.flow.planner import plan_sequence
+from app.flow.planner_agent import plan_sequence
 from app.cognitive.contracts.types import MemoryContext
 
 # # Minimal GraphState stand-in for local test; replace with your real class

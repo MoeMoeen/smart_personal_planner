@@ -435,6 +435,118 @@ this is fed back into **global memory** (semantic + episodic) so the global brai
 
 ---
 
+Now let’s sketch the **full pipeline** end-to-end, adding the “step before planner agent” so the whole flow makes sense in your architecture.
+
+---
+
+# ⚡ Pipeline: From User → Plan → Compiler → Execution
+
+## **Step 0. User Input**
+
+* User sends a message (e.g. *“Make me a roadmap for launching my product”*).
+* This goes into the system as the initial `state["messages"]`.
+
+---
+
+## **Step 1. Intent Recognition Agent**
+
+* First node is **always-on brain interface** (intent recognizer).
+* It looks at the user’s message and classifies intent:
+
+  * `"roadmap_request"`
+  * `"competitor_analysis"`
+  * `"simple_question"`
+* Output: `state["intent"] = "roadmap_request"`
+
+👉 **This is what decides whether we need to trigger the planner agent at all.**
+
+* If intent = “chitchat”, no plan.
+* If intent = “roadmap\_request”, **trigger planner agent.**
+
+---
+
+## **Step 2. Planner Agent**
+
+* Triggered **only if needed** (based on intent).
+* Planner is an LLM-powered agent whose job is:
+
+  * Translate high-level intent → a **plan** (list of node names).
+  * Example output:
+
+    ```python
+    plan = ["intent_recognition", "entity_extraction", "planner", "executor"]
+    ```
+* Planner might even generate conditional branches like:
+
+  * “If missing data → route to clarification\_node.”
+
+---
+
+## **Step 3. FlowCompiler**
+
+* Now we pass the `plan` into **FlowCompiler** along with the `registry` of known NodeSpecs.
+* FlowCompiler responsibilities:
+
+  * Verify nodes exist.
+  * Check no cycles.
+  * Insert missing dependencies.
+  * Resolve callables.
+  * Wrap with pre/post hooks.
+  * Add linear edges (`A → B → C`).
+* Output: **compiled graph** (nodes + edges + routers).
+
+👉 Compile happens once per plan.
+
+---
+
+## **Step 4. Execution Engine (GraphBuilder / Runner)**
+
+* The compiled graph is now executed with the current `state`.
+* Execution rules:
+
+  * Follow edges statically.
+  * If a node has a **conditional router**, call it to decide next node dynamically.
+  * Fire **pre\_hook** before each node.
+  * Fire **post\_hook** after each node.
+* Example run:
+
+  ```
+  PRE intent_recognition
+  POST intent_recognition → intent=roadmap_request
+  PRE entity_extraction
+  POST entity_extraction → entities=['market', 'budget']
+  PRE planner
+  POST planner → {'plan': '3-step roadmap'}
+  PRE executor
+  POST executor → {'output': 'Here is your roadmap…'}
+  ```
+
+---
+
+# 🔹 Visual Map (simplified)
+
+```
+User → IntentRecognition ───► [if tasky intent → Planner Agent]
+                             │
+                             ▼
+                      FlowCompiler.compile(plan)
+                             │
+                             ▼
+                       Execution Engine
+                    (hooks + routers + edges)
+```
+
+---
+
+# ✅ Key Takeaways
+
+1. **Intent Recognition Node** = gatekeeper. Decides if planner agent should be triggered.
+2. **Planner Agent** = dynamic LLM brain that outputs a *plan* (sequence of nodes).
+3. **FlowCompiler** = takes plan + registry, turns into executable graph.
+4. **Execution Engine** = runs the graph, node by node, with runtime dynamism (routers/hooks).
+
+---
+
 
 ### Master Action Plan
 
