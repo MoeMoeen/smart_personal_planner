@@ -1,4 +1,4 @@
-# app/cognitive/nodes/task_generation.py
+# app/cognitive/nodes/task_generation_node.py
 """
 Detailed Task Generation Node
 - Expands PlanOutline into OccurrenceTasks
@@ -25,7 +25,7 @@ def task_generation_node(plan_outline: PlanOutline, memory_context: MemoryContex
 
 
 # =============================
-# app/nodes/task_generation.py
+# app/nodes/task_generation_node.py
 # =============================
 
 

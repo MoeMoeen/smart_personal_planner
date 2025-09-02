@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # ---- LLM-based planner ---------------------------------------------------------------
 
-def build_planner_messages(intent: str, memory_context: MemoryContext, registry: Dict[str, NodeSpec]) -> List[ChatMessage]:
+def build_planner_messages(intent: str, memory_context: MemoryContext, registry: Dict[str, NodeSpec], parameters: Dict[str, Any] | None = None) -> List[ChatMessage]:
     """Return chat messages asking the LLM to propose the best sequence of nodes/tools
     given the user's intent, memory summary, and the registry (with dependencies).
     """
@@ -28,7 +28,7 @@ def build_planner_messages(intent: str, memory_context: MemoryContext, registry:
         "\n"
         "Reference defaults (for safety only, not mandatory), "
         "which are deterministic default flows used as a last resort. "
-        "You may take inspiration, but you are encouraged to improve or adapt them if context suggests:\n"
+        "You don't have to follow them, but you may take inspiration and are still encouraged to improve or adapt them if context suggests:\n"
         f"{json.dumps(DEFAULT_FLOW_REGISTRY, indent=2)}\n"
     )
 
@@ -43,6 +43,7 @@ def build_planner_messages(intent: str, memory_context: MemoryContext, registry:
 
     user = json.dumps({
         "intent": intent,
+        "parameters": parameters or {},
         "memory_summary": _summarize_memory_context(memory_context),
         "registry": reg_list,
     }, ensure_ascii=False)
@@ -61,9 +62,9 @@ def build_planner_messages(intent: str, memory_context: MemoryContext, registry:
     ]
 
 
-def propose_sequence_llm(intent: str, memory_context: MemoryContext, registry: Dict[str, NodeSpec], temperature: float = 0.0) -> Dict[str, Any]:
+def propose_sequence_llm(intent: str, memory_context: MemoryContext, registry: Dict[str, NodeSpec], temperature: float = 0.0, parameters: Dict[str, Any] | None = None) -> Dict[str, Any]:
     backend = get_llm_backend("openai")
-    messages = build_planner_messages(intent, memory_context, registry)
+    messages = build_planner_messages(intent, memory_context, registry, parameters=parameters)
     resp = backend.chat(messages=messages, temperature=temperature)
     try:
         data = json.loads(resp.content)
@@ -82,12 +83,12 @@ def propose_sequence_llm(intent: str, memory_context: MemoryContext, registry: D
     return {"sequence": seq, "reason": data.get("reason"), "raw": resp.content}
 
 
-def plan_sequence(intent: str, memory_context: MemoryContext, registry: Dict[str, NodeSpec], defaults: Dict[str, List[str]]) -> Tuple[List[str], bool, Dict[str, Any]]:
+def plan_flow_sequence(intent: str, memory_context: MemoryContext, registry: Dict[str, NodeSpec], defaults: Dict[str, List[str]], temperature: float = 0.0, parameters: Dict[str, Any] | None = None) -> Tuple[List[str], bool, Dict[str, Any]]:
     """Try LLM-based proposal first; fall back to deterministic defaults on failure.
     Returns: (sequence, used_llm, meta)
     """
     try:
-        result = propose_sequence_llm(intent, memory_context, registry)
+        result = propose_sequence_llm(intent, memory_context, registry, temperature, parameters)
         return result["sequence"], True, result
     except Exception as e:
         logger.warning("LLM planner failed; falling back. error=%s", e)

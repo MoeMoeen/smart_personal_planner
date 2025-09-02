@@ -61,9 +61,13 @@ class GraphState(BaseModel):
         default=None, description="Error message if any step fails."
     )
 
+    # 🆕 new field for user-facing output
+    response_text: Optional[str] = Field(
+        default=None, description="Human-readable text to return to the user (e.g. for Telegram)."
+    )
+
     @model_validator(mode="after")
     def check_required_fields(self):
-        # Example: If plan_outline is set, goal_spec must be set
         if self.plan_outline is not None and self.goal_spec is None:
-            raise ValueError('goal_spec must be set if plan_outline is set')
+            raise ValueError("goal_spec must be set if plan_outline is set")
         return self

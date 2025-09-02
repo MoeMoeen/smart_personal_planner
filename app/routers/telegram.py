@@ -15,6 +15,8 @@ from app.agent.agent_factory import AgentFactory  # Alternative agent factory
 from app.db import SessionLocal
 from app.models import User
 from sqlalchemy.orm import Session
+from app.orchestration.message_handler import handle_user_message
+
 
 # Configure logging
 logging.basicConfig(
@@ -203,8 +205,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # 🤖 CENTRALIZED AGENT SYSTEM - Defaults to Complex LangGraph
         # Environment variable AGENT_TYPE=simple can switch to simple agent
         try:
-            result = run_graph_with_message(user_message, user_id)  # Uses complex agent by default
+            #result = run_graph_with_message(user_message, user_id)  # Uses complex agent by default
             
+            # New Cognitive AI Based Implementation
+            
+            memory_context = {}  # TODO: fetch from DB
+            response_text = await handle_user_message(user_id, user_message, memory_context)
+            await update.message.reply_text(response_text, parse_mode='Markdown')
+            
+
             # Extract the final response from the LangGraph result
             if result and "messages" in result and len(result["messages"]) > 0:
                 final_message = result["messages"][-1]
