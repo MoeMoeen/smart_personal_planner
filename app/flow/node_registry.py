@@ -12,31 +12,31 @@ from app.flow.flow_compiler import NodeSpec  # reuse the dataclass
 
 # NOTE: We point to node callables via `entrypoint_path` so they are imported lazily.
 NODE_REGISTRY: Dict[str, NodeSpec] = {
-    "plan_outline": NodeSpec(
-        name="plan_outline",
+    "plan_outline_node": NodeSpec(
+        name="plan_outline_node",
         type="node",
         description="Create a high-level plan outline",
         outputs=["outline"],
         entrypoint_path="app.nodes.plan_outline:plan_outline",
     ),
-    "user_confirm_a": NodeSpec(
-        name="user_confirm_a",
+    "user_confirm_a_node": NodeSpec(
+        name="user_confirm_a_node",
         type="node",
         description="Ask user to confirm or revise the outline",
         inputs=["outline"],
         dependencies=["plan_outline"],
         entrypoint_path="app.nodes.user_confirmation:user_confirm_a",
     ),
-    "task_generation": NodeSpec(
-        name="task_generation",
+    "task_generation_node": NodeSpec(
+        name="task_generation_node",
         type="node",
         description="Expand outline into concrete tasks",
         inputs=["outline"],
         dependencies=["user_confirm_a"],
         entrypoint_path="app.nodes.task_generation:task_generation",
     ),
-    "world_model_integration": NodeSpec(
-        name="world_model_integration",
+    "world_model_integration_node": NodeSpec(
+        name="world_model_integration_node",
         type="node",
         description="Enrich tasks with world model constraints (calendar, capacity, blackout)",
         inputs=["tasks"],
@@ -44,8 +44,8 @@ NODE_REGISTRY: Dict[str, NodeSpec] = {
         dependencies=["task_generation"],
         entrypoint_path="app.nodes.world_model_integration:world_model_integration",
     ),
-    "calendarization": NodeSpec(
-        name="calendarization",
+    "calendarization_node": NodeSpec(
+        name="calendarization_node",
         type="node",
         description="Assign time slots to tasks based on world constraints",
         inputs=["tasks", "wm_enriched"],
@@ -53,8 +53,8 @@ NODE_REGISTRY: Dict[str, NodeSpec] = {
         dependencies=["world_model_integration"],
         entrypoint_path="app.nodes.calendarization:calendarization",
     ),
-    "validation": NodeSpec(
-        name="validation",
+    "validation_node": NodeSpec(
+        name="validation_node",
         type="node",
         description="Check schedule for overlaps/violations and fixable issues",
         inputs=["schedule"],
@@ -62,22 +62,30 @@ NODE_REGISTRY: Dict[str, NodeSpec] = {
         dependencies=["calendarization"],
         entrypoint_path="app.nodes.validation:validation",
     ),
-    "user_confirm_b": NodeSpec(
-        name="user_confirm_b",
+    "user_confirm_b_node": NodeSpec(
+        name="user_confirm_b_node",
         type="node",
         description="Present final plan for approval (B).",
         inputs=["schedule", "violations"],
         dependencies=["validation"],
         entrypoint_path="app.nodes.user_confirmation:user_confirm_b",
     ),
-    "persistence": NodeSpec(
-        name="persistence",
+    "persistence_node": NodeSpec(
+        name="persistence_node",
         type="node",
         description="Persist plan to DB and external calendars",
         inputs=["schedule"],
         outputs=["persisted"],
         dependencies=["user_confirm_b"],
         entrypoint_path="app.nodes.persistence:persistence",
+    ),
+    "clarification_node": NodeSpec(
+        name="clarification_node",
+        type="node",
+        description="Clarify user intent or gather more information.",
+        inputs=["user_input"],
+        outputs=["clarified_intent"],
+        entrypoint_path="app.nodes.clarification:clarification",
     ),
 }
 

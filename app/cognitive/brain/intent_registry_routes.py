@@ -1,7 +1,10 @@
 # app/cognitive/brain/intent_registry.py
-# canonical intents, synonyms, examples (knowledge)
+# canonical intents, synonyms, examples, default routes (knowledge)
 
-# Centralized intent registry for the cognitive AI system
+# Centralized intent registry and default routes per each intent for the cognitive AI system
+
+from __future__ import annotations
+
 
 SUPPORTED_INTENTS = [
     {"name": "create_new_plan", "description": "User wants to create a new plan for a goal or project."},
@@ -24,3 +27,38 @@ SUPPORTED_INTENTS = [
     {"name": "reset_existing_plan", "description": "User wants to reset a plan to its initial state."},
     {"name": "ask_about_preferences", "description": "User asks about their own preferences or system's understanding of them."}
 ]
+
+
+# Fallback deterministic flows (sequences of nodes) for when LLM planning is unavailable or fails.
+DEFAULT_FLOW_REGISTRY = {
+    "create_new_plan": [
+        "plan_outline",
+        "user_confirm_a",
+        "task_generation",
+        "world_model_integration",
+        "calendarization",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+    # Add more intents as needed
+    "ask_question": ["conversation_node"],
+    "clarify": ["clarification_node"],
+    # we have to implement the routing sequence for each intent
+}
+
+
+def _map_intent_to_node(intent: str) -> str:
+    """
+    Map high-level intent names to graph node names.
+    In real system, you could load from config or registry.
+    Mapping format is <intent_name>: <node_name>
+    """
+    mapping = {
+        "confirm_outline": "task_generation",
+        "revise_outline": "plan_outline",
+        "ask_question": "conversation",  # if you have a small-talk node
+        "adaptive_replan": "plan_outline",
+        "create_new_plan": "plan_outline",
+    }
+    return mapping.get(intent, "plan_outline")

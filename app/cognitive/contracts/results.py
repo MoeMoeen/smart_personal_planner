@@ -1,6 +1,10 @@
+# app/cognitive/contracts/results.py
+
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
+from dataclasses import dataclass
 
+@dataclass
 class IntentResult(BaseModel):
     intent: str
     parameters: Dict[str, Any]
@@ -8,3 +12,4 @@ class IntentResult(BaseModel):
     llm_raw_response: str = ""
     token_usage: Optional[Dict[str, Any]] = None
     llm_cost: Optional[float] = None
+    notes: str = ""

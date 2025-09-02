@@ -1,15 +1,39 @@
 # app/flow/conditions.py
-
+"""
+    
+    """
 from __future__ import annotations
+from app.cognitive.brain.intent_registry_routes import _map_intent_to_node
 from typing import Any
+import logging
+
+from app.cognitive.brain.intent_recognition.intent_recognition_node import detect_intent
+from app.cognitive.contracts.types import MemoryContext
+
+logger = logging.getLogger(__name__)
 
 def route_after_confirm_a(state: Any) -> str:
     """
-    If user rejected at confirm A, route back to 'plan_outline'; otherwise continue to 'task_generation'.
-    Expects that 'user_confirm_a' set state['confirm_a'] = True/False.
+    Intelligent router after user_confirm_a.
+    Calls intent recognition brain (LLM) to decide the next node dynamically.
+    Ask the intent recognition brain (LLM) where to go next.
+    - Input: full GraphState (user message, memory, etc.)
+    - Output: node name string, e.g. "task_generation" or "plan_outline" or "ask_question"
     """
     try:
-        confirmed = bool(state.get("confirm_a"))
-    except Exception:
-        confirmed = False
-    return "task_generation" if confirmed else "plan_outline"
+        user_msg = getattr(state, "user_input", None) or state.get("user_input")
+        memory_ctx: MemoryContext = getattr(state, "memory_context", None) or state.get("memory_context")
+
+        # 1. detect intent using brain
+        intent_result = detect_intent(user_msg, memory_ctx)
+        intent = intent_result.intent
+
+        # 2. map intent to next node
+        next_node = _map_intent_to_node(intent)
+        logger.info(f"Router: intent={intent} → next_node={next_node}")
+        return next_node
+
+    except Exception as e:
+        logger.error(f"route_after_confirm_a failed: {e}")
+        # fallback: safe default
+        return "plan_outline"

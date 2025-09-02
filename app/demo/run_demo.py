@@ -1,19 +1,18 @@
 # app/demo/run_demo.py
-
-
-
 # =============================
 # app/demo/run_demo.py  (optional local smoke test)
 # =============================
+
 from __future__ import annotations
 from typing import Any
 
 from app.flow.flow_compiler import FlowCompiler, CompileOptions
 from app.flow.adapters.langgraph_adapter import LangGraphBuilderAdapter
-from app.flow.registry import NODE_REGISTRY
-from app.flow.intent_routes import DEFAULT_FLOW_REGISTRY
-from app.flow.planner_agent import plan_sequence
+from app.flow.node_registry import NODE_REGISTRY
+from app.cognitive.brain.intent_registry_routes import DEFAULT_FLOW_REGISTRY
+from app.flow.flow_planner_agent import plan_sequence
 from app.cognitive.contracts.types import MemoryContext
+from app.flow.conditions import route_after_confirm_a
 
 # # Minimal GraphState stand-in for local test; replace with your real class
 # class GraphState(dict):
@@ -32,19 +31,24 @@ from app.cognitive.contracts.types import MemoryContext
 #     print(result)
 
 
-
+# stand-in GraphState for demo
 class GraphState(dict):
     pass
 
 if __name__ == "__main__":
     intent = "create_new_plan"
-    mem = MemoryContext(user_id="demo-user", episodic=[], semantic=[], procedural=[])
+    sequence = DEFAULT_FLOW_REGISTRY[intent][:3]  # ["plan_outline", "user_confirm_a", "task_generation"]
 
-    sequence, used_llm, meta = plan_sequence(intent, mem, NODE_REGISTRY, DEFAULT_FLOW_REGISTRY)
-    print("Planner used LLM:", used_llm)
+    # mem = MemoryContext(user_id="demo-user", episodic=[], semantic=[], procedural=[])
+
+    # sequence, used_llm, meta = plan_sequence(intent, mem, NODE_REGISTRY, DEFAULT_FLOW_REGISTRY)
+    # print("Planner used LLM:", used_llm)
 
     compiler = FlowCompiler(lambda: LangGraphBuilderAdapter(GraphState))
-    graph = compiler.compile(plan=sequence, registry=NODE_REGISTRY, options=CompileOptions())
+    options = CompileOptions(
+        conditional_routers={"user_confirm_a": route_after_confirm_a}
+    )
+    graph = compiler.compile(plan=sequence, registry=NODE_REGISTRY, options=options)
 
     initial = GraphState(goal="Planner Demo Goal")
     result = graph.invoke(initial)

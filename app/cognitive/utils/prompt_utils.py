@@ -14,13 +14,14 @@ from typing import List, Dict, Any
 import json
 
 from app.cognitive.contracts.types import MemoryContext
-from app.cognitive.brain.intent_registry import SUPPORTED_INTENTS  # list[dict]
+from app.cognitive.brain.intent_registry_routes import SUPPORTED_INTENTS  # list[dict]
+from app.cognitive.utils.llm_backend import ChatMessage
 
 PROMPT_VERSION = "intent_planning_v1"
 
 # --- Public API (messages-first) -------------------------------------------------------
 
-def build_intent_messages(user_input: str, memory_context: MemoryContext) -> List[Dict[str, str]]:
+def build_intent_messages(user_input: str, memory_context: MemoryContext) -> List[ChatMessage]:
     """Return OpenAI-style chat messages (system + user) for intent detection.
 
     Use with LLM backend like:
@@ -29,8 +30,8 @@ def build_intent_messages(user_input: str, memory_context: MemoryContext) -> Lis
     system_text = _get_system_instruction()
     user_text = _format_user_block(user_input, memory_context)
     return [
-        {"role": "system", "content": system_text},
-        {"role": "user", "content": user_text},
+        ChatMessage(role="system", content=system_text),
+        ChatMessage(role="user", content=user_text),
     ]
 
 # Backward-compatible (single-string) variant
@@ -45,7 +46,10 @@ def _get_system_instruction() -> str:
 You are the Intent Brain for a Smart Personal Planner. Read the user message and the memory summary.
 1) Decide the single BEST intent from the supported list.
 2) Extract any parameters needed to fulfill the intent.
-3) If the intent is unclear, use "ask_question" and include clarifying info.
+3. If the intent is valid but REQUIRED parameters are missing, output intent="clarify".
+   - List all missing fields in parameters.missing[]
+   - Include a reason in parameters.reason.
+4. If the intent itself is unclear, use intent="ask_question".
 
 STRICT OUTPUT: Return ONLY valid JSON (UTF-8), no explanations, no markdown.
 
