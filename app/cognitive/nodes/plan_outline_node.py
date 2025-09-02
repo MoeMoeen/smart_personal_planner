@@ -22,23 +22,28 @@ def plan_outline_node(goal_spec: GoalSpec, memory_context: MemoryContext) -> Pla
     raise NotImplementedError("Plan outline node not implemented yet.")
 
 
+from app.cognitive.state.graph_state import GraphState
 
-# =============================
-# app/nodes/plan_outline.py
-# =============================
-
-
-def plan_outline(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Draft a simple outline. In real code, call your LLM chain here."""
-    history = state.setdefault("execution_history", [])
-    history.append({"node": "plan_outline"})
-
-    # Minimal demo payload
-    state["outline"] = {
-        "title": state.get("goal", "Untitled Plan"),
-        "occurrences": 2,
-        "cycles": "weekly",
+def plan_outline_node_test(state: GraphState) -> GraphState:
+    """
+    Generate a high-level plan outline.
+    For demo: stub output with fake structure.
+    """
+    # Example outline
+    outline = {
+        "goal": "Fitness",
+        "frequency": "3 times per week",
+        "duration": "12 weeks",
+        "phases": ["Warmup", "Workout", "Cooldown"]
     }
-    state["last_node"] = "plan_outline"
-    return state
 
+    state.plan_outline = outline
+    state.response_text = (
+        "📋 Here’s your proposed plan outline:\n"
+        f"- Goal: {outline['goal']}\n"
+        f"- Frequency: {outline['frequency']}\n"
+        f"- Duration: {outline['duration']}\n"
+        f"- Phases: {', '.join(outline['phases'])}\n\n"
+        "Do you want to confirm this outline?"
+    )
+    return state

@@ -1,10 +1,7 @@
-# app/flow/registry.py   # Node registry and lookup utilities
+# app/flow/node_registry.py   # Node registry and lookup utilities
 # NodeSpec registry (+ decorators/introspection)
 
 
-# =============================
-# app/flow/registry.py
-# =============================
 from __future__ import annotations
 from typing import Dict
 
