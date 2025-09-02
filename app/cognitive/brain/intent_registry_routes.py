@@ -1,19 +1,26 @@
-# app/cognitive/brain/intent_registry.py
+# app/cognitive/brain/intent_registry_routes.py
 # canonical intents, synonyms, examples, default routes (knowledge)
 
 # Centralized intent registry and default routes per each intent for the cognitive AI system
 
 from __future__ import annotations
 
+# app/cognitive/brain/intent_registry_routes.py
 
-SUPPORTED_INTENTS = [
+from __future__ import annotations
+from typing import Dict, List
+
+
+# --------------------------------------------------------------------
+# Canonical User-Facing Intents
+# --------------------------------------------------------------------
+SUPPORTED_INTENTS: List[Dict[str, str]] = [
     {"name": "create_new_plan", "description": "User wants to create a new plan for a goal or project."},
     {"name": "edit_existing_plan", "description": "User wants to make minor or specific changes to an existing plan (e.g., update a task, change a deadline, add/remove a step)."},
-    {"name": "revise_plan", "description": "User wants to holistically rethink or restructure a plan, often in response to feedback, new circumstances, or falling behind. This is a major revision, not just a minor edit."},
-    {"name": "adaptive_replan", "description": "User is behind schedule for a goal and wants the system to intelligently replan so the goal can still be achieved. This may require compressing, rescheduling, or reprioritizing tasks, and may trigger syncing of other plans to avoid conflicts."},
+    {"name": "revise_plan", "description": "User wants to holistically rethink or restructure a plan."},
+    {"name": "adaptive_replan", "description": "User is behind schedule and wants to intelligently replan."},
     {"name": "update_task", "description": "User wants to update details of a specific task."},
     {"name": "give_feedback", "description": "User provides feedback on a plan, task, or system behavior."},
-    {"name": "ask_question", "description": "User asks a question about plans, tasks, or the system."},
     {"name": "pause_goal", "description": "User wants to pause progress on a goal."},
     {"name": "reschedule_task", "description": "User wants to change the scheduled time of a task."},
     {"name": "show_summary", "description": "User requests a summary of plans, goals, or progress."},
@@ -21,16 +28,35 @@ SUPPORTED_INTENTS = [
     {"name": "add_constraint", "description": "User wants to add a constraint (e.g., time, resource) to a plan or task."},
     {"name": "remove_task", "description": "User wants to remove a task from a plan."},
     {"name": "update_goal", "description": "User wants to update the details or parameters of a goal."},
-    {"name": "see_goal_performance", "description": "User wants to see his/her performance metrics for a specific goal."},
-    {"name": "see_overall_performance", "description": "User wants to see his/her overall performance metrics across all goals."},
+    {"name": "see_goal_performance", "description": "User wants to see performance metrics for a specific goal."},
+    {"name": "see_overall_performance", "description": "User wants to see overall performance metrics across all goals."},
     {"name": "sync_all_plans_across_all_goals", "description": "User wants to synchronize all plans across all goals."},
     {"name": "reset_existing_plan", "description": "User wants to reset a plan to its initial state."},
-    {"name": "ask_about_preferences", "description": "User asks about their own preferences or system's understanding of them."}
+    {"name": "ask_about_preferences", "description": "User asks about their own preferences or system's understanding of them."},
 ]
 
 
+# --------------------------------------------------------------------
+# System / Control Intents (meta-intents not directly asked by user)
+# --------------------------------------------------------------------
+SYSTEM_INTENTS: List[Dict[str, str]] = [
+    {"name": "clarify", "description": "System needs to ask the user for missing required information before continuing."},
+    {"name": "ask_question", "description": "System interprets ambiguous or unrelated input as a general question."},
+]
+
+
+# --------------------------------------------------------------------
+# All Intents (for convenience if needed)
+# --------------------------------------------------------------------
+ALL_INTENTS: List[Dict[str, str]] = SUPPORTED_INTENTS + SYSTEM_INTENTS
+
+
+# --------------------------------------------------------------------
 # Fallback deterministic flows (sequences of nodes) for when LLM planning is unavailable or fails.
+# --------------------------------------------------------------------
+
 DEFAULT_FLOW_REGISTRY = {
+    # --- Plan lifecycle ---
     "create_new_plan": [
         "plan_outline",
         "user_confirm_a",
@@ -41,14 +67,115 @@ DEFAULT_FLOW_REGISTRY = {
         "user_confirm_b",
         "persistence",
     ],
-    # Add more intents as needed
+    "edit_existing_plan": [
+        "update_task_node",       # direct edit to existing task/plan
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+    "revise_plan": [
+        "plan_outline",           # re-generate outline
+        "user_confirm_a",
+        "task_generation",        # rebuild tasks
+        "world_model_integration",
+        "calendarization",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+    "adaptive_replan": [
+        "plan_outline",           # re-outline under new constraints
+        "task_generation",
+        "world_model_integration",
+        "calendarization",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+    "reset_existing_plan": [
+        "plan_reset_node",        # wipe/rebuild baseline
+        "plan_outline",
+        "user_confirm_a",
+        "task_generation",
+        "calendarization",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+
+    # --- Task-level operations ---
+    "update_task": [
+        "update_task_node",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+    "reschedule_task": [
+        "reschedule_task_node",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+    "remove_task": [
+        "remove_task_node",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+
+    # --- Goal-level operations ---
+    "update_goal": [
+        "goal_update_node",
+        "plan_outline",
+        "user_confirm_a",
+        "task_generation",
+        "calendarization",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+    "pause_goal": [
+        "pause_goal_node",
+        "persistence",
+    ],
+
+    # --- Meta/system operations ---
+    "give_feedback": [
+        "feedback_logger_node",
+        "acknowledge_node",
+    ],
+    "undo_last_action": [
+        "undo_node",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+    "add_constraint": [
+        "constraint_node",
+        "plan_outline",          # constraint may require re-outline
+        "task_generation",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+    "sync_all_plans_across_all_goals": [
+        "sync_node",
+        "validation",
+        "user_confirm_b",
+        "persistence",
+    ],
+
+    # --- Information requests ---
+    "show_summary": ["summary_node"],
+    "see_goal_performance": ["performance_node"],
+    "see_overall_performance": ["performance_node"],
     "ask_question": ["conversation_node"],
+    "ask_about_preferences": ["preference_node"],
     "clarify": ["clarification_node"],
-    # we have to implement the routing sequence for each intent
 }
 
 
-def _map_intent_to_node(intent: str) -> str:
+def map_intent_to_node(intent: str) -> str:
     """
     Map high-level intent names to graph node names.
     In real system, you could load from config or registry.

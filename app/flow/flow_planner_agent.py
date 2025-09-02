@@ -9,6 +9,7 @@ import logging
 from app.cognitive.contracts.types import MemoryContext
 from app.cognitive.utils.llm_backend import get_llm_backend, ChatMessage
 from app.flow.flow_compiler import NodeSpec
+from app.cognitive.brain.intent_registry_routes import DEFAULT_FLOW_REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,11 @@ def build_planner_messages(intent: str, memory_context: MemoryContext, registry:
         "of node names to fulfill the intent. Respect dependencies: a node's dependencies MUST appear before it.\n"
         "Return ONLY strict JSON with schema: {\"sequence\": [<node_name>...], \"reason\": <short string>}\n"
         "Do NOT include nodes that are not in the registry.\n"
+        "\n"
+        "Reference defaults (for safety only, not mandatory), "
+        "which are deterministic default flows used as a last resort. "
+        "You may take inspiration, but you are encouraged to improve or adapt them if context suggests:\n"
+        f"{json.dumps(DEFAULT_FLOW_REGISTRY, indent=2)}\n"
     )
 
     # Compact registry spec for the LLM

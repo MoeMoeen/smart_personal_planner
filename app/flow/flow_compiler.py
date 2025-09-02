@@ -197,7 +197,7 @@ class FlowCompiler:
             wrapped = self._wrap_with_hooks(name, func, options)
             builder.add_node(name, wrapped)
 
-        # Add edges or routers
+        # Add edges or routers: https://docs.google.com/document/d/1YE0nNw6qEGp56JzPdLklilnbDAMSdAspQTQnwIKrmv8/edit?tab=t.dkxl7jj1w70f#heading=h.g9l2sy6vx82b
         cond = options.conditional_routers or {}
         for i, src in enumerate(ordered):
             # If this node has a router, install it instead of a single linear edge
