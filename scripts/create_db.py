@@ -1,4 +1,4 @@
-from app.db import engine
+from app.db.db import engine
 from app.models import Base
 
 # Create all tables defined by our models

@@ -5,7 +5,7 @@ import warnings
 
 from app import schemas
 from app.crud import crud
-from app.db import get_db
+from app.db.db import get_db
 from app.routers.users import get_current_user
 from app.models import User
 

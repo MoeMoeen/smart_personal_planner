@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import your models here to ensure they are registered with SQLAlchemy
 from app.models import Base  # Import Base from the main models module
-from app.db import DATABASE_URL
+from app.db.db import DATABASE_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

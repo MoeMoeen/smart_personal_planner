@@ -4,7 +4,7 @@ from langchain_core.tools import tool
 from app.crud.planner import save_generated_plan
 from app.ai.schemas import GeneratedPlan, GoalDescriptionRequest, AIPlanResponse
 from sqlalchemy.orm import Session
-from app.db import SessionLocal, get_db
+from app.db.db import SessionLocal, get_db
 from typing import Optional
 from app.main import logging
 from datetime import date
@@ -175,7 +175,7 @@ def get_user_plans(user_id: int) -> str:
         str: List of all plans with their goal titles and statuses
     """
     try:
-        from app.db import SessionLocal
+        from app.db.db import SessionLocal
         from app.crud import crud
 
         db = SessionLocal()
@@ -217,7 +217,7 @@ def get_user_approved_plans(user_id: int) -> str:
         str: List of approved plans with associated goal titles
     """
     try:
-        from app.db import SessionLocal
+        from app.db.db import SessionLocal
         from app.crud import crud
 
         db = SessionLocal()
@@ -263,7 +263,7 @@ def refine_existing_plan(plan_id: int, user_feedback: str, user_id: int) -> str:
     """
     try:
         from app.crud.planner import generate_refined_plan_from_feedback
-        from app.db import SessionLocal
+        from app.db.db import SessionLocal
 
         db = SessionLocal()
         logger.info(f"Refining plan {plan_id} for user {user_id} with feedback: {user_feedback}")

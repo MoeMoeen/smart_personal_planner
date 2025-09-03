@@ -11,7 +11,7 @@ import os
 
 from app import schemas
 from app.crud import crud
-from app.db import get_db
+from app.db.db import get_db
 from app.models import User
 
 # Security setup

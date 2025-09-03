@@ -2,7 +2,7 @@
 # python -m app.scripts.reset_db_data
 
 from sqlalchemy.orm import Session
-from app.db import SessionLocal
+from app.db.db import SessionLocal
 from app.models import (
     Task,
     GoalOccurrence,

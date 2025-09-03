@@ -16,8 +16,8 @@ from sqlalchemy.orm import relationship, declarative_base
 import enum
 from datetime import datetime
 from sqlalchemy.sql import func
-from typing import Optional
-
+from typing import Literal, Optional
+from app.cognitive.contracts.types import MemoryObject
 
 # Step 1: Create the SQLAlchemy base for all models
 Base = declarative_base()
@@ -622,3 +622,66 @@ class CapacitySnapshot(Base):
     def __repr__(self):
         return (f"<CapacitySnapshot(user_id={self.user_id}, period={self.period_key}, "
                 f"scheduled={self.scheduled_hours}h/{self.limit_hours}h)>")
+    
+
+class EpisodicMemory(Base):
+    """
+    Episodic memory for storing user experiences and events with timestamps.
+    """
+    __tablename__ = "episodic_memory"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True)
+    goal_id = Column(Integer, nullable=True)  # optional link to a goal
+    content = Column(JSON, nullable=False)    # flexible content
+    created_at = Column(DateTime, server_default=func.now())
+
+    def orm_to_memory_object(self) -> MemoryObject:
+        return MemoryObject(
+            memory_id=str(self.id) if self.id is not None else None,
+            user_id=str(self.user_id) if self.user_id is not None else "",
+            goal_id=getattr(self, "goal_id", None),
+            type={"episodic_memory": "episodic", "semantic_memory": "semantic", "procedural_memory": "procedural"}[self.__tablename__] if self.__tablename__ in {"episodic_memory", "semantic_memory", "procedural_memory"} else None,  # type: ignore
+            content=self.content if not isinstance(self.content, Column) else {},
+            timestamp=getattr(self, "created_at", None) or datetime.utcnow(),
+        )
+
+
+class SemanticMemory(Base):
+    """
+    Semantic memory for storing general knowledge and facts.
+    """
+    __tablename__ = "semantic_memory"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True)
+    content = Column(JSON, nullable=False)    # preferences, facts
+    created_at = Column(DateTime, server_default=func.now())
+
+    def orm_to_memory_object(self) -> MemoryObject:
+        return MemoryObject(
+            memory_id=str(self.id) if self.id is not None else None,
+            user_id=str(self.user_id) if self.user_id is not None else "",
+            goal_id=getattr(self, "goal_id", None),
+            type={"episodic_memory": "episodic", "semantic_memory": "semantic", "procedural_memory": "procedural"}[self.__tablename__] if self.__tablename__ in {"episodic_memory", "semantic_memory", "procedural_memory"} else None,  # type: ignore
+            content=self.content if not isinstance(self.content, Column) else {},
+            timestamp=getattr(self, "created_at", None) or datetime.utcnow(),
+        )
+
+class ProceduralMemory(Base):
+    """
+    Procedural memory for storing rules, conditions, and actions.
+    """
+    __tablename__ = "procedural_memory"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True)
+    content = Column(JSON, nullable=False)    # rules, conditions, actions
+    created_at = Column(DateTime, server_default=func.now())
+
+    def orm_to_memory_object(self) -> MemoryObject:
+        return MemoryObject(
+            memory_id=str(self.id) if self.id is not None else None,
+            user_id=str(self.user_id) if self.user_id is not None else "",
+            goal_id=getattr(self, "goal_id", None),
+            type={"episodic_memory": "episodic", "semantic_memory": "semantic", "procedural_memory": "procedural"}[self.__tablename__] if self.__tablename__ in {"episodic_memory", "semantic_memory", "procedural_memory"} else None,  # type: ignore
+            content=self.content if not isinstance(self.content, Column) else {},
+            timestamp=getattr(self, "created_at", None) or datetime.utcnow(),
+        )

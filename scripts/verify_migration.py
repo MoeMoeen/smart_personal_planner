@@ -189,7 +189,7 @@ def main():
     logger.info("🔍 Starting migration verification...")
     
     try:
-        from app.db import engine
+        from app.db.db import engine
         
         with engine.connect() as connection:
             checks = [
