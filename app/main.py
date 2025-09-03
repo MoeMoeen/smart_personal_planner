@@ -1,5 +1,9 @@
+# app/main.py
+
+import os
 from fastapi import FastAPI
 from app.routers import goals, cycles, occurrences, planning, telegram, users
+from contextlib import asynccontextmanager
 import logging
 
 logging.basicConfig(
@@ -7,8 +11,15 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
 )
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    webhook_url = os.environ.get("TELEGRAM_WEBHOOK_URL")
+    if webhook_url:
+        await telegram.application.bot.set_webhook(webhook_url)
+    yield  # Startup code runs before this, shutdown code after
+
 # Step 1: Create the FastAPI app
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 # Step 2: Define a basic test route
 @app.get("/")
@@ -32,5 +43,3 @@ app.include_router(users.router)
 
 # Step 8: Include the Telegram router
 app.include_router(telegram.router)
-
-

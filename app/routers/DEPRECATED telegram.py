@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/telegram", tags=["telegram"])
+# router = APIRouter(prefix="/telegram", tags=["telegram"])
 
 # Global variable to store the Telegram application
 telegram_app: Optional[Application] = None
@@ -320,99 +320,99 @@ def setup_telegram_app() -> Application:
     
     return application
 
-@router.post("/webhook")
-async def telegram_webhook(webhook_data: dict):
-    """Handle incoming Telegram webhooks"""
-    global telegram_app
+# @router.post("/webhook")
+# async def telegram_webhook(webhook_data: dict):
+#     """Handle incoming Telegram webhooks"""
+#     global telegram_app
     
-    if not telegram_app:
-        telegram_app = setup_telegram_app()
+#     if not telegram_app:
+#         telegram_app = setup_telegram_app()
     
-    try:
-        # Create Update object from webhook data
-        update = Update.de_json(webhook_data, telegram_app.bot)
+#     try:
+#         # Create Update object from webhook data
+#         update = Update.de_json(webhook_data, telegram_app.bot)
         
-        # Process the update
-        await telegram_app.process_update(update)
+#         # Process the update
+#         await telegram_app.process_update(update)
         
-        return {"status": "ok"}
+#         return {"status": "ok"}
         
-    except Exception as e:
-        logger.error(f"Error processing webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         logger.error(f"Error processing webhook: {e}")
+#         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/set-webhook")
-async def set_webhook():
-    """Set the webhook URL for the Telegram bot"""
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")  # e.g., "https://yourdomain.com/telegram/webhook"
+# @router.get("/set-webhook")
+# async def set_webhook():
+#     """Set the webhook URL for the Telegram bot"""
+#     token = os.getenv("TELEGRAM_BOT_TOKEN")
+#     webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")  # e.g., "https://yourdomain.com/telegram/webhook"
     
-    if not token or not webhook_url:
-        raise HTTPException(
-            status_code=400, 
-            detail="TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_URL environment variables are required"
-        )
+#     if not token or not webhook_url:
+#         raise HTTPException(
+#             status_code=400, 
+#             detail="TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_URL environment variables are required"
+#         )
     
-    try:
-        app = setup_telegram_app()
-        await app.bot.set_webhook(url=webhook_url)
-        return {"status": "webhook set", "url": webhook_url}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#     try:
+#         app = setup_telegram_app()
+#         await app.bot.set_webhook(url=webhook_url)
+#         return {"status": "webhook set", "url": webhook_url}
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/webhook-info")
-async def get_webhook_info():
-    """Get current webhook information"""
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        raise HTTPException(status_code=400, detail="TELEGRAM_BOT_TOKEN is required")
+# @router.get("/webhook-info")
+# async def get_webhook_info():
+#     """Get current webhook information"""
+#     token = os.getenv("TELEGRAM_BOT_TOKEN")
+#     if not token:
+#         raise HTTPException(status_code=400, detail="TELEGRAM_BOT_TOKEN is required")
     
-    try:
-        app = setup_telegram_app()
-        webhook_info = await app.bot.get_webhook_info()
-        return {
-            "url": webhook_info.url,
-            "has_custom_certificate": webhook_info.has_custom_certificate,
-            "pending_update_count": webhook_info.pending_update_count,
-            "last_error_date": webhook_info.last_error_date,
-            "last_error_message": webhook_info.last_error_message,
-            "max_connections": webhook_info.max_connections,
-            "allowed_updates": webhook_info.allowed_updates
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#     try:
+#         app = setup_telegram_app()
+#         webhook_info = await app.bot.get_webhook_info()
+#         return {
+#             "url": webhook_info.url,
+#             "has_custom_certificate": webhook_info.has_custom_certificate,
+#             "pending_update_count": webhook_info.pending_update_count,
+#             "last_error_date": webhook_info.last_error_date,
+#             "last_error_message": webhook_info.last_error_message,
+#             "max_connections": webhook_info.max_connections,
+#             "allowed_updates": webhook_info.allowed_updates
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
-# For local development/testing - polling mode
-async def run_telegram_polling():
-    """Run Telegram bot in polling mode for local development"""
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        logger.error("TELEGRAM_BOT_TOKEN environment variable is required")
-        return
+# # For local development/testing - polling mode
+# async def run_telegram_polling():
+#     """Run Telegram bot in polling mode for local development"""
+#     token = os.getenv("TELEGRAM_BOT_TOKEN")
+#     if not token:
+#         logger.error("TELEGRAM_BOT_TOKEN environment variable is required")
+#         return
     
-    application = setup_telegram_app()
+#     application = setup_telegram_app()
     
-    logger.info("Starting Telegram bot in polling mode...")
-    await application.initialize()
-    await application.start()
+#     logger.info("Starting Telegram bot in polling mode...")
+#     await application.initialize()
+#     await application.start()
     
-    # Check if updater exists before using it
-    if application.updater:
-        await application.updater.start_polling()
+#     # Check if updater exists before using it
+#     if application.updater:
+#         await application.updater.start_polling()
         
-        try:
-            # Keep the bot running
-            await asyncio.Future()  # Run forever
-        except KeyboardInterrupt:
-            logger.info("Stopping Telegram bot...")
-        finally:
-            await application.updater.stop()
-    else:
-        logger.error("Application updater is not available")
+#         try:
+#             # Keep the bot running
+#             await asyncio.Future()  # Run forever
+#         except KeyboardInterrupt:
+#             logger.info("Stopping Telegram bot...")
+#         finally:
+#             await application.updater.stop()
+#     else:
+#         logger.error("Application updater is not available")
     
-    await application.stop()
-    await application.shutdown()
+#     await application.stop()
+#     await application.shutdown()
 
-if __name__ == "__main__":
-    # For testing - run the bot in polling mode
-    asyncio.run(run_telegram_polling())
+# if __name__ == "__main__":
+#     # For testing - run the bot in polling mode
+#     asyncio.run(run_telegram_polling())

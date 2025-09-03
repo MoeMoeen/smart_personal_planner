@@ -1,7 +1,7 @@
 # app/cognitive/contracts/types.py
 """Data models for the cognitive architecture of the smart personal planner."""
 
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union, Dict
 from datetime import datetime, date, timezone
 from pydantic import BaseModel, Field
 
@@ -81,6 +81,8 @@ class MemoryContext(BaseModel):
     episodic: List[MemoryObject] = Field(default_factory=list)
     semantic: List[MemoryObject] = Field(default_factory=list)
     procedural: List[MemoryObject] = Field(default_factory=list)
+    memory_updates: Dict[str, List[MemoryObject]] = Field(default_factory=lambda: {"episodic": [], "semantic": [], "procedural": []})
+
     # Optional metadata for traceability and context
     user_id: Optional[str] = None
     session_id: Optional[str] = None
