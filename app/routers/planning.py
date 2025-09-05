@@ -6,9 +6,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from app.ai.goal_parser_chain import goal_parser_chain, parser, generate_plan_with_validation
-from app.ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanFeedbackResponse, GoalDescriptionRequest, AIPlanResponse, AIPlanWithCodeResponse, GeneratePlanRequest
-from app.ai.goal_code_generator import GeneratedPlanWithCode, parser as code_parser, goal_code_chain 
+from app.DEPRECATED.DEPRECATED_ai.goal_parser_chain import goal_parser_chain, parser, generate_plan_with_validation
+from app.DEPRECATED.DEPRECATED_ai.schemas import GeneratedPlan, PlanFeedbackRequest, PlanFeedbackResponse, GoalDescriptionRequest, AIPlanResponse, AIPlanWithCodeResponse, GeneratePlanRequest
+from app.DEPRECATED.DEPRECATED_ai.goal_code_generator import GeneratedPlanWithCode, parser as code_parser, goal_code_chain 
 from app.db.db import get_db  
 from sqlalchemy.orm import Session
 from app.crud import crud, planner
@@ -312,7 +312,7 @@ def plan_feedback(request: PlanFeedbackRequest, db: Session = Depends(get_db)) -
 
 if __name__ == "__main__":
     from app.db.db import SessionLocal
-    from app.ai.schemas import PlanFeedbackRequest
+    from app.DEPRECATED.DEPRECATED_ai.schemas import PlanFeedbackRequest
     from app.models import PlanFeedbackAction
 
     db = SessionLocal()

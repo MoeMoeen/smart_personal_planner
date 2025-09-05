@@ -3,7 +3,7 @@
 # 2. A code snippet (Python) for how to persist the plan to DB
 from pydantic import BaseModel, Field
 from typing import Optional
-from app.ai.schemas import GeneratedPlan
+from app.DEPRECATED.DEPRECATED_ai.schemas import GeneratedPlan
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI

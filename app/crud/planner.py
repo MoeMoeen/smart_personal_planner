@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session, selectinload
 from app.models import Goal, HabitCycle, GoalOccurrence, Task, Plan, Feedback
-from app.ai.schemas import GeneratedPlan
+from app.DEPRECATED.DEPRECATED_ai.schemas import GeneratedPlan
 from app.models import GoalType
 from typing import Optional
 from datetime import date
@@ -78,7 +78,7 @@ def save_generated_plan(plan: GeneratedPlan, db: Session, user_id: int, source_p
     validate_plan_semantics(plan)
     
     # ✅ Additional completeness validation
-    from app.ai.goal_parser_chain import validate_plan_completeness
+    from app.DEPRECATED.DEPRECATED_ai.goal_parser_chain import validate_plan_completeness
     is_valid, issues = validate_plan_completeness(plan)
     
     if not is_valid:
@@ -307,7 +307,7 @@ def generate_refined_plan_from_feedback(
         logger.info("------ [DEBUG] End of Prior Feedback Combined ------")
 
         # ✅ 5. Prepare source plan data for field completion (Plan-centric)
-        from app.ai.goal_parser_chain import robust_refine_plan
+        from app.DEPRECATED.DEPRECATED_ai.goal_parser_chain import robust_refine_plan
         
         source_plan_data = {
             "goal_id": goal.id,
@@ -377,7 +377,7 @@ def generate_refined_plan_from_feedback(
         except Exception as e:
             print(f"Robust refinement failed, falling back to original chain: {e}")
             # Fallback to original chain
-            from app.ai.goal_parser_chain import refine_plan_chain
+            from app.DEPRECATED.DEPRECATED_ai.goal_parser_chain import refine_plan_chain
             result = refine_plan_chain.invoke({
                 "goal_description": goal.description or goal.title,
                 "previous_plan": previous_plan_content,

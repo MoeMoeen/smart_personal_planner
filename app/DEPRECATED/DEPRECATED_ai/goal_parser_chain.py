@@ -7,8 +7,8 @@
 from langchain_openai import ChatOpenAI                     # ✅ Interface to OpenAI chat models
 from langchain.prompts import ChatPromptTemplate            # ✅ Helps define reusable prompt structure
 from langchain.output_parsers import PydanticOutputParser   # ✅ Enforces Pydantic schema on LLM output
-from app.ai.schemas import GeneratedPlan                    # ✅ Import your structured schema
-import os                                                   # ✅ For environment variable access     
+from app.DEPRECATED.DEPRECATED_ai.schemas import GeneratedPlan                    # ✅ Import your structured schema
+import os                                                   # ✅ For environment variable access
 from pydantic import SecretStr
 from decouple import config
 from langchain.schema.runnable import RunnableMap
@@ -272,7 +272,7 @@ def robust_refine_plan(goal_description: str, previous_plan_content: str, prior_
     """
     try:
         # Import here to avoid circular imports
-        from app.ai.robust_parser import RobustParser
+        from app.DEPRECATED.DEPRECATED_ai.robust_parser import RobustParser
         
         # Generate initial LLM output using the refinement prompt
         messages = refinement_prompt_template.format_messages(
@@ -607,7 +607,7 @@ def generate_plan_with_validation(goal_description: str) -> GeneratedPlan:
     """
     try:
         # Import here to avoid circular imports
-        from app.ai.robust_parser import RobustParser
+        from app.DEPRECATED.DEPRECATED_ai.robust_parser import RobustParser
         
         # Get today's date for prompt context
         today = date.today().isoformat()

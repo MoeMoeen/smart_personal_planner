@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app import models, schemas
-from app.ai.schemas import PlanFeedbackRequest
+from app.DEPRECATED.DEPRECATED_ai.schemas import PlanFeedbackRequest
 
 # === PLAN CRUD OPERATIONS (Used by Agent Tools) ===
 
@@ -83,6 +83,10 @@ def delete_goal_occurrence(db: Session, occurrence_id: int) -> Optional[models.G
     db.delete(db_occurrence)
     db.commit()
     return db_occurrence
+
+def get_occurrences_for_cycle(db: Session, cycle_id: int) -> List[models.GoalOccurrence]:
+    """Get all occurrences for a specific goal cycle - used by occurrences router"""
+    return db.query(models.GoalOccurrence).filter(models.GoalOccurrence.cycle_id == cycle_id).all()
 
 # === DEPRECATED GOAL CRUD OPERATIONS ===
 # These are kept for backward compatibility with existing routers

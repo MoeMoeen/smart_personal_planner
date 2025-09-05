@@ -13,33 +13,34 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    webhook_url = os.environ.get("TELEGRAM_WEBHOOK_URL")
-    if webhook_url:
-        await telegram.application.bot.set_webhook(webhook_url)
-    yield  # Startup code runs before this, shutdown code after
+    mode = os.environ.get("TELEGRAM_MODE", "webhook").lower()
 
-# Step 1: Create the FastAPI app
+    await telegram.application.initialize()
+    await telegram.application.start()
+
+    if mode == "webhook":
+        webhook_url = os.environ.get("TELEGRAM_WEBHOOK_URL")
+        if webhook_url:
+            await telegram.application.bot.set_webhook(webhook_url)
+            logging.info(f"🔗 Webhook set to {webhook_url}")
+    else:
+        logging.info("💡 Skipping webhook — running in polling mode (manual start required).")
+
+    yield
+
+    await telegram.application.stop()
+    await telegram.application.shutdown()
+
 app = FastAPI(lifespan=lifespan)
 
-# Step 2: Define a basic test route
 @app.get("/")
 def read_root():
     return {"message": "Welcome to Smart Personal Planner!"}
 
-# Step 3: Include the goals router
 app.include_router(goals.router)
-
-# Step 4: Include the cycles router
 app.include_router(cycles.router)
-
-# Step 5: Include the occurrences router
 app.include_router(occurrences.router)
-
-# Step 6: Include the planning router
 app.include_router(planning.router)
-
-# Step 7: Include the users router (authentication & user management)
 app.include_router(users.router)
-
-# Step 8: Include the Telegram router
 app.include_router(telegram.router)
+
