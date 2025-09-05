@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy import Enum as SQLAlchemyEnum, JSON
 from sqlalchemy.orm import relationship, declarative_base
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.sql import func
 from typing import Literal, Optional
 from app.cognitive.contracts.types import MemoryObject
@@ -642,7 +642,7 @@ class EpisodicMemory(Base):
             goal_id=getattr(self, "goal_id", None),
             type={"episodic_memory": "episodic", "semantic_memory": "semantic", "procedural_memory": "procedural"}[self.__tablename__] if self.__tablename__ in {"episodic_memory", "semantic_memory", "procedural_memory"} else None,  # type: ignore
             content=self.content if not isinstance(self.content, Column) else {},
-            timestamp=getattr(self, "created_at", None) or datetime.utcnow(),
+            timestamp=self.created_at if isinstance(self.created_at, datetime) else datetime.now(timezone.utc),
         )
 
 
@@ -663,7 +663,7 @@ class SemanticMemory(Base):
             goal_id=getattr(self, "goal_id", None),
             type={"episodic_memory": "episodic", "semantic_memory": "semantic", "procedural_memory": "procedural"}[self.__tablename__] if self.__tablename__ in {"episodic_memory", "semantic_memory", "procedural_memory"} else None,  # type: ignore
             content=self.content if not isinstance(self.content, Column) else {},
-            timestamp=getattr(self, "created_at", None) or datetime.utcnow(),
+            timestamp=self.created_at if isinstance(self.created_at, datetime) else datetime.now(timezone.utc),
         )
 
 class ProceduralMemory(Base):
@@ -683,5 +683,5 @@ class ProceduralMemory(Base):
             goal_id=getattr(self, "goal_id", None),
             type={"episodic_memory": "episodic", "semantic_memory": "semantic", "procedural_memory": "procedural"}[self.__tablename__] if self.__tablename__ in {"episodic_memory", "semantic_memory", "procedural_memory"} else None,  # type: ignore
             content=self.content if not isinstance(self.content, Column) else {},
-            timestamp=getattr(self, "created_at", None) or datetime.utcnow(),
+            timestamp=self.created_at if isinstance(self.created_at, datetime) else datetime.now(timezone.utc),
         )
