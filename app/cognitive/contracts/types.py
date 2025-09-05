@@ -57,7 +57,7 @@ class CalendarizedPlan(BaseModel):
 
 class PlanVerificationReport(BaseModel):
     goal_id: str
-    passed: bool
+    approved: bool
     violations: List[str] = []
 
 
