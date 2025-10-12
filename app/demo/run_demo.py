@@ -10,7 +10,7 @@ from app.flow.flow_compiler import FlowCompiler, CompileOptions
 from app.flow.adapters.langgraph_adapter import LangGraphBuilderAdapter
 from app.flow.node_registry import NODE_REGISTRY
 from app.cognitive.brain.intent_registry_routes import DEFAULT_FLOW_REGISTRY
-from app.flow.flow_planner_agent import plan_flow_sequence
+from app.flow.flow_planner_llm import plan_flow_sequence
 from app.cognitive.contracts.types import MemoryContext
 from app.flow.conditions import route_after_confirm_a
 

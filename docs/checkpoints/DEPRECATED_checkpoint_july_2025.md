@@ -1,3 +1,4 @@
+### OUTDATED
 
 ✅ Checkpoint Summary: Plan Feedback and Refinement Logic (Mid-July 2025)
 

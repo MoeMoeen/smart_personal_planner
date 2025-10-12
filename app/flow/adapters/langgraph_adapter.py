@@ -7,7 +7,7 @@
 # app/flow/adapters/langgraph_adapter.py
 # =============================
 from __future__ import annotations
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Tuple, Union, Hashable
 from langgraph.graph import StateGraph, END
 
 class LangGraphBuilderAdapter:
@@ -37,14 +37,36 @@ class LangGraphBuilderAdapter:
         else:
             self._sg.add_edge(src, dst)
 
-    def add_conditional_router(self, node: str, route_func: Callable[[Any], str]) -> None:
+    def add_conditional_router(
+        self,
+        node: str,
+        route: Union[Callable[[Any], str], Dict[str, str], Tuple[Callable[[Any], str], Dict[str, str]]],
+    ) -> None:
         """
-        Install a router at `node` that returns the next node name.
-        If your LangGraph version expects (router, mapping), you can wrap like:
-            self._sg.add_conditional_edges(node, lambda s: route_func(s), {})
-        and ensure all possible destinations are already added as nodes.
+        Install a router at `node`.
+        - If a function is provided: it must be (state) -> next_node_name and we pass it directly.
+        - If a dict mapping is provided: we install a key router that returns keys, with a mapping of key->dst.
+          In this case, the route_func must be provided as a function via 'router' kwarg and mapping via 'conditional_map'.
         """
-        self._sg.add_conditional_edges(node, route_func)
+        if isinstance(route, tuple):
+            router_func, mapping = route
+            mapping_cast: Dict[Hashable, str] = {k: v for k, v in mapping.items()}
+            self._sg.add_conditional_edges(node, router_func, mapping_cast)
+        elif isinstance(route, dict):
+            # Mapping router expects the node function to return a key present in mapping
+            mapping: Dict[str, str] = route
+            def key_router(state: Any) -> str:
+                # Expect state to contain a key 'route_key' set by the node
+                key = getattr(state, "route_key", None) if hasattr(state, "route_key") else state.get("route_key")
+                if key is None:
+                    # fallback to first mapping key
+                    return next(iter(mapping.keys()))
+                return str(key)
+            # Cast mapping to satisfy type checkers expecting Hashable keys
+            mapping_cast: Dict[Hashable, str] = {k: v for k, v in mapping.items()}
+            self._sg.add_conditional_edges(node, key_router, mapping_cast)
+        else:
+            self._sg.add_conditional_edges(node, route)
 
     def build(self):
         return self._sg.compile()

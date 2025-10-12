@@ -58,85 +58,85 @@ ALL_INTENTS: List[Dict[str, str]] = SUPPORTED_INTENTS + SYSTEM_INTENTS
 DEFAULT_FLOW_REGISTRY = {
     # --- Plan lifecycle ---
     "create_new_plan": [
-        "plan_outline",
-        "user_confirm_a",
-        "task_generation",
-        "world_model_integration",
-        "calendarization",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "plan_outline_node",
+        "user_confirm_a_node",
+        "task_generation_node",
+        "world_model_integration_node",
+        "calendarization_node",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
     "edit_existing_plan": [
         "update_task_node",       # direct edit to existing task/plan
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
     "revise_plan": [
-        "plan_outline",           # re-generate outline
-        "user_confirm_a",
-        "task_generation",        # rebuild tasks
-        "world_model_integration",
-        "calendarization",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "plan_outline_node",           # re-generate outline
+        "user_confirm_a_node",
+        "task_generation_node",        # rebuild tasks
+        "world_model_integration_node",
+        "calendarization_node",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
     "adaptive_replan": [
-        "plan_outline",           # re-outline under new constraints
-        "task_generation",
-        "world_model_integration",
-        "calendarization",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "plan_outline_node",           # re-outline under new constraints
+        "task_generation_node",
+        "world_model_integration_node",
+        "calendarization_node",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
     "reset_existing_plan": [
         "plan_reset_node",        # wipe/rebuild baseline
-        "plan_outline",
-        "user_confirm_a",
-        "task_generation",
-        "calendarization",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "plan_outline_node",
+        "user_confirm_a_node",
+        "task_generation_node",
+        "calendarization_node",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
 
     # --- Task-level operations ---
     "update_task": [
         "update_task_node",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
     "reschedule_task": [
         "reschedule_task_node",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
     "remove_task": [
         "remove_task_node",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
 
     # --- Goal-level operations ---
     "update_goal": [
         "goal_update_node",
-        "plan_outline",
-        "user_confirm_a",
-        "task_generation",
-        "calendarization",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "plan_outline_node",
+        "user_confirm_a_node",
+        "task_generation_node",
+        "calendarization_node",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
     "pause_goal": [
         "pause_goal_node",
-        "persistence",
+        "persistence_node",
     ],
 
     # --- Meta/system operations ---
@@ -146,23 +146,23 @@ DEFAULT_FLOW_REGISTRY = {
     ],
     "undo_last_action": [
         "undo_node",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
     "add_constraint": [
         "constraint_node",
-        "plan_outline",          # constraint may require re-outline
-        "task_generation",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "plan_outline_node",          # constraint may require re-outline
+        "task_generation_node",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
     "sync_all_plans_across_all_goals": [
         "sync_node",
-        "validation",
-        "user_confirm_b",
-        "persistence",
+        "validation_node",
+        "user_confirm_b_node",
+        "persistence_node",
     ],
 
     # --- Information requests ---
@@ -182,10 +182,10 @@ def map_intent_to_node(intent: str) -> str:
     Mapping format is <intent_name>: <node_name>
     """
     mapping = {
-        "confirm_outline": "task_generation",
-        "revise_outline": "plan_outline",
-        "ask_question": "conversation",  # if you have a small-talk node
-        "adaptive_replan": "plan_outline",
-        "create_new_plan": "plan_outline",
+        "confirm_outline": "task_generation_node",
+        "revise_outline": "plan_outline_node",
+        "ask_question": "conversation_node",  # if you have a small-talk node
+        "adaptive_replan": "plan_outline_node",
+        "create_new_plan": "plan_outline_node",
     }
-    return mapping.get(intent, "plan_outline")
+    return mapping.get(intent, "plan_outline_node")

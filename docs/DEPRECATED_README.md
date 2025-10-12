@@ -53,24 +53,6 @@ Telegram Bot: Used as the primary user interface.
 
 
 
-📁 Project Structure
-app/
-├── agent/
-│   ├── tools.py              # LangChain tool definitions
-│   └── graph.py              # LangGraph workflow logic
-├── ai/
-│   ├── goal_parser_chain.py  # Goal parsing and refinement chains
-│   └── schemas.py            # Pydantic schemas for plan/goal/tasks
-├── crud/
-│   ├── crud.py               # Core CRUD logic
-│   └── planner.py            # Planning logic (save/refine)
-├── db.py                     # DB engine + get_db session factory
-├── models.py                 # SQLAlchemy models for DB schema
-├── routers/
-│   └── planning.py           # FastAPI endpoints
-
-
-
 🧱 Key Models
 Goal (Abstract)
 id, title, description, start_date, end_date, goal_type, progress, user_id
@@ -112,7 +94,7 @@ Refinement history (refinement_round, source_plan_id)
 What the AI Actually Creates:
 The AI doesn't just create a goal - it creates a complete plan that includes:
 
-Goal definition
+Goal definition (INTERPRETED FROM USERS'S ARTICULATED GOAL)
 Task breakdown
 Timeline structure
 Habit cycles (if applicable)
@@ -122,7 +104,7 @@ So "Plan Management" is much more accurate.
 Point B: Beyond "Creation" ✅
 You're also right that this node will handle multiple plan operations:
 
-Current Agentic Tools:
+Sample Agentic Tools:
 generate_plan_with_ai_tool (creation)
 refine_existing_plan (refinement)
 get_user_plans (viewing)

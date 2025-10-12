@@ -30,8 +30,12 @@ class GraphState(BaseModel):
     occurrence_tasks: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Detailed tasks for each occurrence."
     )
+    # For alignment with node I/O, include a generic schedule list
+    schedule: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Scheduled tasks list for the plan."
+    )
     calendarized_plan: Optional[Dict[str, Any]] = Field(
-        default=None, description="Plan with assigned time slots."
+        default=None, description="Plan with assigned time slots (legacy alias)."
     )
 
     validation_result: Optional[Dict[str, Any]] = Field(
@@ -50,6 +54,13 @@ class GraphState(BaseModel):
 
     user_feedback: Optional[str] = Field(
         default=None, description="User feedback at confirmation steps."
+    )
+    # Router-related flags
+    confirmed_a: Optional[str] = Field(
+        default=None, description='Decision at confirm A: "confirm" | "revise" | "cancel"'
+    )
+    validation_key: Optional[str] = Field(
+        default=None, description='Validation branching key: "clean" | "minor" | "severe"'
     )
     retry_count: int = Field(
         default=0, description="Number of retries for the current step."

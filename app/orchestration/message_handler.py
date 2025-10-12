@@ -1,8 +1,8 @@
 # app/orchestration/message_handler.py
 
 import logging
-from app.cognitive.brain.intent_recognition.intent_recognition_node import detect_intent
-from app.flow.flow_planner_agent import plan_flow_sequence
+from app.cognitive.brain.intent_recognition_node import detect_intent
+from app.flow.flow_planner_llm import plan_flow_sequence
 from app.flow.flow_compiler import FlowCompiler, CompileOptions
 from app.flow.adapters.langgraph_adapter import LangGraphBuilderAdapter
 from app.flow.node_registry import NODE_REGISTRY
@@ -42,9 +42,9 @@ async def handle_user_message(user_id: int, user_message: str, memory_context) -
     compiler = FlowCompiler(lambda: LangGraphBuilderAdapter(GraphState))
     options = CompileOptions(
         conditional_routers={
-            "user_confirm_a": route_after_confirm_a,
+            "user_confirm_a_node": route_after_confirm_a,
             # You can add others later:
-            # "user_confirm_b": route_after_confirm_b,
+            # "user_confirm_b_node": route_after_confirm_b,
         }
     )
     graph = compiler.compile(plan=sequence, registry=NODE_REGISTRY, options=options)
