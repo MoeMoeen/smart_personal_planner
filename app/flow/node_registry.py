@@ -14,7 +14,7 @@ NODE_REGISTRY: Dict[str, NodeSpec] = {
         type="node",
         description="Agentic Planning Node: produce Outline → Roadmap → Schedule with internal approvals.",
         outputs=["plan_outline", "roadmap", "schedule"],
-        entrypoint_path="app.cognitive.nodes.planning:planning_node",
+    entrypoint_path="app.cognitive.nodes.planning_node:planning_node",
     ),
     "user_confirm_a_node": NodeSpec(
         name="user_confirm_a_node",
