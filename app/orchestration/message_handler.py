@@ -8,7 +8,7 @@ from app.flow.adapters.langgraph_adapter import LangGraphBuilderAdapter
 from app.flow.node_registry import NODE_REGISTRY
 from app.cognitive.state.graph_state import GraphState
 from app.cognitive.brain.intent_registry_routes import DEFAULT_FLOW_REGISTRY
-from app.flow.conditions import route_after_confirm_a  # router
+# from app.flow.conditions import route_after_confirm_a  # router (legacy, not used in agentic path)
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +41,7 @@ async def handle_user_message(user_id: int, user_message: str, memory_context) -
     # Step C: compile graph with routers
     compiler = FlowCompiler(lambda: LangGraphBuilderAdapter(GraphState))
     options = CompileOptions(
-        conditional_routers={
-            "user_confirm_a_node": route_after_confirm_a,
-            # You can add others later:
-            # "user_confirm_b_node": route_after_confirm_b,
-        }
+        conditional_routers={}
     )
     graph = compiler.compile(plan=sequence, registry=NODE_REGISTRY, options=options)
 
@@ -60,10 +56,10 @@ async def handle_user_message(user_id: int, user_message: str, memory_context) -
     # Step E: return formatted text
     if result_state.response_text:
         return result_state.response_text
-    if result_state.plan_outline:
-        return f"📋 Plan Outline:\n{result_state.plan_outline}"
-    if result_state.occurrence_tasks:
-        return f"✅ Tasks:\n{result_state.occurrence_tasks}"
+    if result_state.plan_outline is not None:
+        return f"📋 Plan Outline available (nodes: {len(result_state.plan_outline.nodes) if result_state.plan_outline.nodes else 0})."
+    if result_state.schedule is not None:
+        return f"🗓️ Schedule available (blocks: {len(result_state.schedule.blocks)})."
     if result_state.validation_result:
         return f"🔎 Validation:\n{result_state.validation_result}"
 

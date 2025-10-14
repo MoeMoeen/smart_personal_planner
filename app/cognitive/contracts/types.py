@@ -1,67 +1,110 @@
 # app/cognitive/contracts/types.py
 
-"""Data models for the cognitive architecture of the smart personal planner."""
+"""Data models for the cognitive architecture of the smart personal planner.
+
+Aligned with v1.2 (patterns + grammar + dual-axis) and v1.3 (MegaGraph orchestration).
+Implements aggressive cleanup: removes legacy OccurrenceTask(s) and CalendarizedPlan.
+"""
 
 from typing import List, Literal, Optional, Union, Dict
-from datetime import datetime, date, timezone
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field, ConfigDict
 
-# === CORE PLANNING CONTRACTS ===
+# ─────────────────────────────────────────────────────────────
+# Core structural entities (cognitive layer)
+# ─────────────────────────────────────────────────────────────
 
-class GoalSpec(BaseModel):
-    goal_id: Optional[str] = None
-    user_id: str
+class PlanNode(BaseModel):
+    """Atomic structural unit representing one node in a plan hierarchy."""
+    id: str
+    parent_id: Optional[str] = None
+    node_type: Literal[
+        "goal", "phase", "cycle", "sub_goal", "task", "sub_task", "micro_goal"
+    ]
+    level: int
     title: str
     description: Optional[str] = None
-    goal_type: Literal["project", "habit"]
-    start_date: date
-    end_date: Optional[date] = None
-    recurrence_count: Optional[int] = None
-    constraints: Optional[List[str]] = []
+    recurrence: Optional[Literal["none", "daily", "weekly", "monthly", "quarterly", "yearly"]] = None
+    # Each dependency: {node_id, type, lag_lead_minutes?}
+    dependencies: List[Dict[str, Union[str, int]]] = Field(default_factory=list)
+    status: Literal["pending", "in_progress", "done", "blocked"] = "pending"
+    progress: float = 0.0
+    origin: Literal["system", "user_feedback", "ai_adaptation"] = "system"
+    tags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, object] = Field(default_factory=dict)
+
+
+class StrategyProfile(BaseModel):
+    """User’s adaptive strategy mode and weights."""
+    mode: Literal["push", "relax", "hybrid", "manual"]
+    weights: Optional[Dict[str, float]] = None  # {achievement, wellbeing, portfolio}
+
+
+class PlanContext(BaseModel):
+    """Meta assumptions and preferences for a plan."""
+    strategy_profile: StrategyProfile
+    assumptions: Optional[Dict[str, object]] = None
+    constraints: Optional[Dict[str, object]] = None
+    user_prefs: Optional[Dict[str, object]] = None
+
+
+class RoadmapContext(BaseModel):
+    """Real-world operational parameters for a plan."""
+    pattern_type: str
+    subtype: Optional[str] = None
+    scope: Optional[str] = None
+    cadence: Optional[str] = None
+    stack: Optional[List[str]] = None
+    venue: Optional[str] = None
+    region: Optional[str] = None
+    time_horizon: Optional[str] = None
+    budget: Optional[str] = None
 
 
 class PlanOutline(BaseModel):
-    goal_id: str
-    num_cycles: int
-    cycle_duration_days: int
-    occurrences_per_cycle: int
-    notes: Optional[str] = None
+    """Conceptual skeleton of a plan before scheduling."""
+    root_id: str
+    plan_context: PlanContext
+    nodes: List[PlanNode]
 
 
-class OccurrenceTask(BaseModel):
+class Roadmap(BaseModel):
+    """Operational realization of the outline with context applied."""
+    root_id: str
+    roadmap_context: RoadmapContext
+    nodes: List[PlanNode]
+
+
+class ScheduledBlock(BaseModel):
+    """One concrete scheduled block of time linked to a PlanNode."""
+    plan_node_id: str
     title: str
-    type: Literal["core", "preparation", "recovery"]
-    estimated_minutes: int
+    start: datetime
+    end: datetime
+    estimated_minutes: Optional[int] = None
+    tags: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
 
 
-class OccurrenceTasks(BaseModel):
-    goal_id: str
-    cycle_number: int
-    occurrence_number: int
-    tasks: List[OccurrenceTask]
+class Schedule(BaseModel):
+    """Full calendar binding for a plan."""
+    blocks: List[ScheduledBlock]
 
 
-class CalendarizedTask(BaseModel):
-    title: str
-    start_datetime: datetime
-    end_datetime: datetime
-    occurrence_id: Optional[str]
-    notes: Optional[str] = None
+class AdaptationLogEntry(BaseModel):
+    """Records every structural/timing change applied by AI or user."""
+    timestamp: datetime
+    node_ids: List[str]
+    action: str
+    reason: Optional[str] = None
+    origin: Literal["system", "user_feedback", "ai_adaptation"]
+    strategy_applied: Optional[str] = None
+    portfolio_impact: Optional[Dict[str, object]] = None
 
 
-class CalendarizedPlan(BaseModel):
-    goal_id: str
-    tasks: List[CalendarizedTask]
-
-
-class PlanVerificationReport(BaseModel):
-    goal_id: str
-    approved: bool
-    violations: List[str] = []
-
-
-# === MEMORY MODELS ===
+# ─────────────────────────────────────────────────────────────
+# MEMORY MODELS (kept as-is)
+# ─────────────────────────────────────────────────────────────
 
 class MemoryObject(BaseModel):
     memory_id: Optional[str] = None

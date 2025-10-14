@@ -360,3 +360,48 @@ NEXT VERSION: Active Learning Integration
 # 🛡️ Use this as a gatekeeper principle before committing any design or logic pattern.
 # ============================================================
 
+
+### 12 october 2025
+# TODO
+
+Centralize prompts
+
+Create app/cognitive/prompts/intent.py and planner.py and update:
+detect_intent to use prompts.intent.build_messages(...)
+flow_planner_llm.py to use prompts.planner.build_messages(...)
+Add robust JSON parse helpers; keep system prompts consistent and configurable.
+E2E demo harness
+
+Under demo, add a small script that:
+Initializes a stub MemoryContext
+Invokes handle_user_message(...) with a simple “create_new_plan” utterance
+Uses real LangGraphBuilderAdapter and the compiled flow
+Prints the final response_text or key artifacts
+This will validate integration end-to-end without Telegram or DB side effects.
+Node implementations
+
+Your app/cognitive/nodes/* modules are mostly stubs. Once we implement them consistently against GraphState (read/write the new fields), flows will actually produce outputs.
+Short-term, we can stub them to set the right flags/keys (e.g., set confirmed_a = "confirm" in user_confirm_a_node) to exercise routing.
+
+After we stabilize the pipeline, we’ll iterate per intent:
+
+Decide per node whether to use a local function, an LLM call, or a mini agent/tool selection.
+Expand NodeSpec descriptions/inputs/outputs to aid the planner and documentation.
+Add runtime hints as needed (latency/cost) for observability or planner guidance.
+Intent as meta-controller
+
+After each run, a controller could judge goal satisfaction vs. recognized intent and either:
+Respond to user, or
+Trigger a re-plan with guardrails, or
+Route to clarification.
+We laid the groundwork with GraphState fields and the router pattern; we can add a simple controller loop once nodes output structured “success criteria” signals:
+
+
+After a flow run, have the intent “brain” (or a thin controller around it) evaluate: “Did the outputs fulfill the intent?”
+If “no”, either:
+Re-plan a new flow with constraints learned from the failed attempt, or
+Route to “clarification_node” to request missing info, then re-run.
+Guardrails:
+- Execution history in GraphState to avoid infinite loops.
+- Max N re-plans per turn.
+- Clear failure modes reported to the user if exhaustion occurs.

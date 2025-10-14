@@ -9,19 +9,19 @@ from app.flow.flow_compiler import NodeSpec  # reuse the dataclass
 
 # NOTE: We point to node callables via `entrypoint_path` so they are imported lazily.
 NODE_REGISTRY: Dict[str, NodeSpec] = {
-    "plan_outline_node": NodeSpec(
-        name="plan_outline_node",
+    "planning_node": NodeSpec(
+        name="planning_node",
         type="node",
-        description="Create a high-level plan outline",
-        outputs=["outline"],
-        entrypoint_path="app.cognitive.nodes.plan_outline:plan_outline",
+        description="Agentic Planning Node: produce Outline → Roadmap → Schedule with internal approvals.",
+        outputs=["plan_outline", "roadmap", "schedule"],
+        entrypoint_path="app.cognitive.nodes.planning:planning_node",
     ),
     "user_confirm_a_node": NodeSpec(
         name="user_confirm_a_node",
         type="node",
         description="Ask user to confirm or revise the outline",
         inputs=["outline"],
-        dependencies=["plan_outline_node"],
+    dependencies=["planning_node"],
         entrypoint_path="app.cognitive.nodes.user_confirmation:user_confirm_a",
     ),
     "task_generation_node": NodeSpec(
