@@ -13,8 +13,8 @@ This document records the agreed plan to implement the agentic Planning Node, al
 - [x] Phase 1 — Rename + Scope Contract (Completed 2025-10-14)
 - [x] Phase 2 — Cognitive Entities (Pydantic) (Completed 2025-10-14)
 - [x] Phase 3 — GraphState Contract (Completed 2025-10-14)
-- [x] Phase 4 — SQLAlchemy ORM (aggressive cleanup) (Completed 2025-10-24)
-- [ ] Phase 5 — Router Function (post-planning branching)
+- [x] Phase 4 — SQLAlchemy ORM (aggressive cleanup) (Completed 2025-10-24) ✅ **FULLY RESOLVED**
+- [ ] Phase 5 — Router Function (post-planning branching) 🎯 **NEXT**
 - [ ] Phase 6 — Node Registry & Defaults
 - [ ] Phase 7 — Planning Agent (ReAct) — Design Contract
 - [ ] Phase 8 — Minimal Stub planning_node (Wiring Test)
@@ -123,13 +123,14 @@ Acceptance criteria:
 
 ## Phase 4 — SQLAlchemy ORM (aggressive cleanup in app/models.py)
 
-Status: Completed (2025-10-24)
+Status: ✅ **FULLY COMPLETED** (2025-10-24) - Migration schema mismatch resolved
 
 Artifacts touched:
 - Completely rewrote `app/models.py` with aggressive cleanup and v1.2/v1.3 alignment.
 - Removed legacy tables: HabitCycle, GoalOccurrence, Task and all their relationships.
 - Added new PlanNode table with UUID PKs, proper constraints, and performance indices.
 - Enhanced ScheduledTask with plan_node_id FK and UUID PK.
+- **Migration files**: `989b0456e09e_phase_4_corrective_aggressive_cleanup_.py` (main transformation) + `038a9bb842fd_phase_4_hotfix_add_status_column_to_.py` (status column fix).
 
 Add:
 - PlanNode table:
@@ -161,6 +162,8 @@ Acceptance criteria:
 - ✅ CRUD: Plan → PlanNodes → ScheduledTasks with plan_node_id relationships work.
 - ✅ All constraints, indices, and cascade behavior properly defined.
 - ✅ 1:1 alignment with Pydantic contracts (progress Float, proper column mapping).
+- ✅ **Migration resolution**: Schema mismatch diagnosed and corrected with comprehensive migration.
+- ✅ **Full validation**: Complete smoke test passes - CRUD operations, relationships, constraints, JSONB fields, CASCADE behavior all verified.
 
 ---
 
@@ -306,11 +309,13 @@ Router:
 
 ## Definition of Done (snapshot)
 
-✓ Renamed node + docs reflect agent ownership of approvals.
-✓ New Pydantic entities compiled & grammar-enforced.
-✓ ORM cleaned: PlanNode added; ScheduledTask.plan_node_id in place; legacy tables removed.
-✓ Surgical deltas applied: progress Float alignment, self-referential disambiguation, root uniqueness constraint.
-- [ ] Router implemented + covered by tests.
+✅ Renamed node + docs reflect agent ownership of approvals.
+✅ New Pydantic entities compiled & grammar-enforced.
+✅ ORM cleaned: PlanNode added; ScheduledTask.plan_node_id in place; legacy tables removed.
+✅ Surgical deltas applied: progress Float alignment, self-referential disambiguation, root uniqueness constraint.
+✅ **Migration schema mismatch resolved**: Corrective migration (989b0456e09e) + hotfix (038a9bb842fd) successfully applied.
+✅ **Full validation completed**: CRUD operations, relationships, constraints, JSONB fields, CASCADE behavior all verified.
+- [ ] Router implemented + covered by tests. 🎯 **IN PROGRESS**
 - [ ] Minimal stub planning_node validates wiring.
 - [ ] Fallback flows isolated behind optional flag.
 - [ ] E2E harness and structured logs provide clear visibility.
@@ -320,5 +325,5 @@ Router:
 ## Changelog
 
 - 2025-10-14: Initial execution plan recorded based on v1.2/v1.3 alignment and aggressive cleanup decision.
-- 2025-10-24: Phase 4 completed - aggressive ORM cleanup with surgical deltas applied. Legacy cleanup complete, removed HabitCycle/GoalOccurrence/Task tables, added PlanNode with UUID PKs and proper constraints, enhanced ScheduledTask with plan_node_id FK. Perfect 1:1 alignment with Pydantic contracts achieved.
+- 2025-10-24: Phase 4 FULLY COMPLETED - aggressive ORM cleanup with surgical deltas applied and migration schema mismatch RESOLVED. Code changes complete: legacy cleanup, removed HabitCycle/GoalOccurrence/Task tables, added PlanNode with UUID PKs and proper constraints, enhanced ScheduledTask with plan_node_id FK. Perfect 1:1 alignment with Pydantic contracts achieved. ✅ Database migration successfully applied with corrective migration (989b0456e09e) and hotfix (038a9bb842fd). ✅ Full CRUD operations, relationships, constraints, JSONB fields, and CASCADE behavior validated via smoke test.
 
