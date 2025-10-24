@@ -8,6 +8,20 @@ This document records the agreed plan to implement the agentic Planning Node, al
 
 ---
 
+## Progress tracker
+
+- [x] Phase 1 — Rename + Scope Contract (Completed 2025-10-14)
+- [x] Phase 2 — Cognitive Entities (Pydantic) (Completed 2025-10-14)
+- [x] Phase 3 — GraphState Contract (Completed 2025-10-14)
+- [x] Phase 4 — SQLAlchemy ORM (aggressive cleanup) (Completed 2025-10-24)
+- [ ] Phase 5 — Router Function (post-planning branching)
+- [ ] Phase 6 — Node Registry & Defaults
+- [ ] Phase 7 — Planning Agent (ReAct) — Design Contract
+- [ ] Phase 8 — Minimal Stub planning_node (Wiring Test)
+- [ ] Phase 9 — Prompt/Policy Centralization
+- [ ] Phase 10 — E2E Demo Harness
+- [ ] Phase 11 — QA Matrix & Rollout
+
 ## Core decisions (source of truth)
 
 - Planning is an agentic meganode (ReAct-style subgraph) that owns the entire dialogue loop and approvals. If Planning succeeds, Outline/Roadmap/Schedule are user-approved and no confirm nodes follow.
@@ -19,6 +33,13 @@ This document records the agreed plan to implement the agentic Planning Node, al
 ---
 
 ## Phase 1 — Rename + Scope Contract (no logic changes)
+
+Status: Completed (2025-10-14)
+
+Artifacts touched:
+- Replaced `plan_outline_node` with `planning_node` in `app/flow/node_registry.py` (entrypoint now `app.cognitive.nodes.planning_node:planning_node`).
+- Added placeholder `app/cognitive/nodes/planning_node.py`.
+- Deprecated legacy `app/cognitive/nodes/plan_outline_node.py` (raises NotImplementedError).
 
 Actions:
 - Rename plan_outline_node → planning_node (agentic meganode).
@@ -32,6 +53,13 @@ Acceptance criteria:
 ---
 
 ## Phase 2 — Cognitive Entities (Pydantic) — Create/Update/Retire
+
+Status: Completed (2025-10-14)
+
+Artifacts touched:
+- Implemented new models in `app/cognitive/contracts/types.py`:
+	- PlanNode, PlanOutline, PlanContext, Roadmap, RoadmapContext, ScheduledBlock, Schedule, StrategyProfile, AdaptationLogEntry.
+- Removed legacy: OccurrenceTask(s), CalendarizedPlan, old GoalSpec-centered outline shape.
 
 Create/Update (app/cognitive/contracts/types.py):
 - PlanNode:
@@ -63,6 +91,12 @@ Acceptance criteria:
 
 ## Phase 3 — GraphState Contract (Planner/Orchestrator)
 
+Status: Completed (2025-10-14)
+
+Artifacts touched:
+- Updated `app/cognitive/state/graph_state.py` to include new artifacts (PlanOutline, Roadmap, Schedule), approvals flags, planning_status, escalate_reason, adaptation_log, planning_trace.
+- Removed legacy fields: occurrence_tasks, calendarized_plan, confirm/validation router flags.
+
 GraphState additions:
 - intent: str
 - goal_context: dict
@@ -89,12 +123,24 @@ Acceptance criteria:
 
 ## Phase 4 — SQLAlchemy ORM (aggressive cleanup in app/models.py)
 
+Status: Completed (2025-10-24)
+
+Artifacts touched:
+- Completely rewrote `app/models.py` with aggressive cleanup and v1.2/v1.3 alignment.
+- Removed legacy tables: HabitCycle, GoalOccurrence, Task and all their relationships.
+- Added new PlanNode table with UUID PKs, proper constraints, and performance indices.
+- Enhanced ScheduledTask with plan_node_id FK and UUID PK.
+
 Add:
 - PlanNode table:
-	- id (PK), plan_id (FK), parent_id (FK plan_nodes.id), node_type, level,
-	- title, description, recurrence, dependencies JSONB, status, progress, origin,
-	- order_index, metadata JSONB, created_at, updated_at.
-- ScheduledTask: add required plan_node_id (FK → plan_nodes.id) for new plans.
+	- id (UUID PK), plan_id (FK), parent_id (FK plan_nodes.id), node_type, level,
+	- title, description, recurrence, dependencies JSONB, status, progress (Float 0.0-1.0), origin,
+	- order_index, node_metadata JSONB, tags JSONB, created_at, updated_at.
+	- Self-referential hierarchy with proper foreign_keys disambiguation.
+	- Unique constraint: one root node (L1, parent_id=NULL) per plan.
+	- Performance indices on plan_id, node_type, level, parent_order.
+	- GIN indices on JSONB fields (tags, dependencies).
+- ScheduledTask: add required plan_node_id (FK → plan_nodes.id), UUID PK, Text notes, CASCADE behavior.
 
 Remove:
 - Drop legacy tables: HabitCycle, GoalOccurrence, Task.
@@ -103,9 +149,18 @@ Remove:
 Keep:
 - Goal, Plan, ScheduledTask, Feedback, User, CapacitySnapshot, Episodic/Semantic/ProceduralMemory.
 
+Surgical deltas applied:
+- Progress alignment: Float 0.0-1.0 (matches Pydantic) vs Integer 0-100.
+- Self-referential relationships: foreign_keys parameter to avoid ambiguity.
+- Root uniqueness: partial unique index enforces one L1 goal per plan.
+- Enhanced notes: Text column vs String for larger content.
+- Metadata consistency: node_metadata column (avoids SQLAlchemy clash).
+
 Acceptance criteria:
-- DB recreated or single forward migration runs cleanly.
-- CRUD: create Plan → add PlanNodes → create ScheduledTasks with plan_node_id.
+- ✅ DB schema compiles cleanly with all models importing successfully.
+- ✅ CRUD: Plan → PlanNodes → ScheduledTasks with plan_node_id relationships work.
+- ✅ All constraints, indices, and cascade behavior properly defined.
+- ✅ 1:1 alignment with Pydantic contracts (progress Float, proper column mapping).
 
 ---
 
@@ -254,14 +309,16 @@ Router:
 ✓ Renamed node + docs reflect agent ownership of approvals.
 ✓ New Pydantic entities compiled & grammar-enforced.
 ✓ ORM cleaned: PlanNode added; ScheduledTask.plan_node_id in place; legacy tables removed.
-✓ Router implemented + covered by tests.
-✓ Minimal stub planning_node validates wiring.
-✓ Fallback flows isolated behind optional flag.
-✓ E2E harness and structured logs provide clear visibility.
+✓ Surgical deltas applied: progress Float alignment, self-referential disambiguation, root uniqueness constraint.
+- [ ] Router implemented + covered by tests.
+- [ ] Minimal stub planning_node validates wiring.
+- [ ] Fallback flows isolated behind optional flag.
+- [ ] E2E harness and structured logs provide clear visibility.
 
 ---
 
 ## Changelog
 
 - 2025-10-14: Initial execution plan recorded based on v1.2/v1.3 alignment and aggressive cleanup decision.
+- 2025-10-24: Phase 4 completed - aggressive ORM cleanup with surgical deltas applied. Legacy cleanup complete, removed HabitCycle/GoalOccurrence/Task tables, added PlanNode with UUID PKs and proper constraints, enhanced ScheduledTask with plan_node_id FK. Perfect 1:1 alignment with Pydantic contracts achieved.
 

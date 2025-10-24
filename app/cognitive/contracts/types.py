@@ -1,47 +1,107 @@
-# app/cognitive/contracts/types.py
-
-"""Data models for the cognitive architecture of the smart personal planner.
-
-Aligned with v1.2 (patterns + grammar + dual-axis) and v1.3 (MegaGraph orchestration).
-Implements aggressive cleanup: removes legacy OccurrenceTask(s) and CalendarizedPlan.
-"""
-
 from typing import List, Literal, Optional, Union, Dict
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field, ConfigDict
+from uuid import UUID
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 # ─────────────────────────────────────────────────────────────
-# Core structural entities (cognitive layer)
+# Canonical enums / type aliases
+# ─────────────────────────────────────────────────────────────
+
+NodeType = Literal["goal", "phase", "cycle", "sub_goal", "task", "sub_task", "micro_goal"]
+Recurrence = Literal["none", "daily", "weekly", "monthly", "quarterly", "yearly"]
+NodeStatus = Literal["pending", "in_progress", "done", "blocked"]
+Origin = Literal["system", "user_feedback", "ai_adaptation"]
+StrategyMode = Literal["push", "relax", "hybrid", "manual"]
+
+# Plan pattern taxonomy (v1.2)
+PatternType = Literal[
+    "milestone_project",
+    "recurring_cycle",
+    "progressive_accumulation_arc",
+    "hybrid_project_cycle",
+    "strategic_transformation",
+]
+PatternSubtype = Literal[
+    "learning_arc",
+    "training_arc",
+    "creative_arc",
+    "career_arc",
+    "therapeutic_arc",
+    "financial_arc",
+]
+
+DependencyType = Literal["finish_to_start", "start_to_start", "finish_to_finish", "start_to_finish"]
+
+
+class Dependency(BaseModel):
+    """Directed relationship from this node to 'node_id' with a precedence rule."""
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: UUID
+    type: DependencyType = "finish_to_start"
+    lag_lead_minutes: int = 0  # positive = lag, negative = lead
+
+    @field_validator("lag_lead_minutes")
+    @classmethod
+    def _reasonable_lag(cls, v: int) -> int:
+        # Optional guardrail; adjust if you want broader range
+        if abs(v) > 60 * 24 * 60:  # 60 days in minutes upper bound
+            raise ValueError("lag_lead_minutes is unreasonably large")
+        return v
+
+
+# ─────────────────────────────────────────────────────────────
+# PlanNode and Hierarchy Models
 # ─────────────────────────────────────────────────────────────
 
 class PlanNode(BaseModel):
     """Atomic structural unit representing one node in a plan hierarchy."""
-    id: str
-    parent_id: Optional[str] = None
-    node_type: Literal[
-        "goal", "phase", "cycle", "sub_goal", "task", "sub_task", "micro_goal"
-    ]
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    parent_id: Optional[UUID] = None
+    node_type: NodeType
     level: int
     title: str
     description: Optional[str] = None
-    recurrence: Optional[Literal["none", "daily", "weekly", "monthly", "quarterly", "yearly"]] = None
-    # Each dependency: {node_id, type, lag_lead_minutes?}
-    dependencies: List[Dict[str, Union[str, int]]] = Field(default_factory=list)
-    status: Literal["pending", "in_progress", "done", "blocked"] = "pending"
+    recurrence: Optional[Recurrence] = None
+    dependencies: List[Dependency] = Field(default_factory=list)
+    status: NodeStatus = "pending"
     progress: float = 0.0
-    origin: Literal["system", "user_feedback", "ai_adaptation"] = "system"
+    origin: Origin = "system"
     tags: List[str] = Field(default_factory=list)
-    metadata: Dict[str, object] = Field(default_factory=dict)
+    metadata: Dict[str, Union[str, int, float, bool, dict, list]] = Field(default_factory=dict)
 
+    @field_validator("progress")
+    @classmethod
+    def _progress_0_1(cls, v: float) -> float:
+        if not (0.0 <= v <= 1.0):
+            raise ValueError("progress must be between 0 and 1")
+        return v
+
+    @model_validator(mode="after")
+    def _root_invariants(self):
+        # L1 goal invariants
+        if self.level == 1:
+            if self.parent_id is not None:
+                raise ValueError("L1 node must not have a parent_id")
+            if self.node_type != "goal":
+                raise ValueError("L1 node must be of node_type='goal'")
+        return self
+
+
+# ─────────────────────────────────────────────────────────────
+# Context Models
+# ─────────────────────────────────────────────────────────────
 
 class StrategyProfile(BaseModel):
-    """User’s adaptive strategy mode and weights."""
-    mode: Literal["push", "relax", "hybrid", "manual"]
+    model_config = ConfigDict(extra="forbid")
+    mode: StrategyMode
     weights: Optional[Dict[str, float]] = None  # {achievement, wellbeing, portfolio}
 
 
 class PlanContext(BaseModel):
-    """Meta assumptions and preferences for a plan."""
+    model_config = ConfigDict(extra="forbid")
     strategy_profile: StrategyProfile
     assumptions: Optional[Dict[str, object]] = None
     constraints: Optional[Dict[str, object]] = None
@@ -49,9 +109,9 @@ class PlanContext(BaseModel):
 
 
 class RoadmapContext(BaseModel):
-    """Real-world operational parameters for a plan."""
-    pattern_type: str
-    subtype: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+    pattern_type: PatternType
+    subtype: Optional[PatternSubtype] = None
     scope: Optional[str] = None
     cadence: Optional[str] = None
     stack: Optional[List[str]] = None
@@ -61,23 +121,39 @@ class RoadmapContext(BaseModel):
     budget: Optional[str] = None
 
 
+# ─────────────────────────────────────────────────────────────
+# Container Models (Outline, Roadmap, Schedule)
+# ─────────────────────────────────────────────────────────────
+
 class PlanOutline(BaseModel):
-    """Conceptual skeleton of a plan before scheduling."""
-    root_id: str
+    model_config = ConfigDict(extra="forbid")
+    root_id: UUID
     plan_context: PlanContext
     nodes: List[PlanNode]
 
+    @model_validator(mode="after")
+    def _root_must_exist(self):
+        if not any(n.id == self.root_id for n in self.nodes):
+            raise ValueError("root_id must be present in nodes")
+        return self
+
 
 class Roadmap(BaseModel):
-    """Operational realization of the outline with context applied."""
-    root_id: str
+    model_config = ConfigDict(extra="forbid")
+    root_id: UUID
     roadmap_context: RoadmapContext
     nodes: List[PlanNode]
 
+    @model_validator(mode="after")
+    def _root_must_exist(self):
+        if not any(n.id == self.root_id for n in self.nodes):
+            raise ValueError("root_id must be present in nodes")
+        return self
+
 
 class ScheduledBlock(BaseModel):
-    """One concrete scheduled block of time linked to a PlanNode."""
-    plan_node_id: str
+    model_config = ConfigDict(extra="forbid")
+    plan_node_id: UUID
     title: str
     start: datetime
     end: datetime
@@ -85,45 +161,56 @@ class ScheduledBlock(BaseModel):
     tags: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
 
+    @model_validator(mode="after")
+    def _time_valid(self):
+        if self.end <= self.start:
+            raise ValueError("end must be after start")
+        # enforce timezone-aware datetimes
+        if self.start.tzinfo is None or self.end.tzinfo is None:
+            raise ValueError("start/end must be timezone-aware")
+        return self
+
 
 class Schedule(BaseModel):
-    """Full calendar binding for a plan."""
+    model_config = ConfigDict(extra="forbid")
     blocks: List[ScheduledBlock]
 
 
+# ─────────────────────────────────────────────────────────────
+# Adaptation & Logging
+# ─────────────────────────────────────────────────────────────
+
 class AdaptationLogEntry(BaseModel):
-    """Records every structural/timing change applied by AI or user."""
+    model_config = ConfigDict(extra="forbid")
     timestamp: datetime
-    node_ids: List[str]
+    node_ids: List[UUID]
     action: str
     reason: Optional[str] = None
-    origin: Literal["system", "user_feedback", "ai_adaptation"]
-    strategy_applied: Optional[str] = None
+    origin: Origin
+    strategy_applied: Optional[StrategyMode] = None
     portfolio_impact: Optional[Dict[str, object]] = None
 
 
 # ─────────────────────────────────────────────────────────────
-# MEMORY MODELS (kept as-is)
+# MEMORY MODELS (as-is with safer defaults)
 # ─────────────────────────────────────────────────────────────
 
 class MemoryObject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     memory_id: Optional[str] = None
     user_id: str
     goal_id: Optional[str] = None
     type: Literal["episodic", "semantic", "procedural"]
     content: Union[str, dict]
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    metadata: Optional[dict] = {}
+    metadata: Optional[dict] = Field(default_factory=dict)
 
 
 class MemoryContext(BaseModel):
-    """
-    Bundles all memory types for node injection and context sharing.
-    Includes helper methods and metadata for robust, traceable, and extensible use.
-    """
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         from_attributes=True,
+        extra="forbid",
         json_schema_extra={
             "example": {
                 "episodic": [],
@@ -151,7 +238,6 @@ class MemoryContext(BaseModel):
     source: Optional[str] = None
 
     def add_memory(self, memory: MemoryObject):
-        """Add a memory object to the correct list based on its type."""
         if memory.type == "episodic":
             self.episodic.append(memory)
         elif memory.type == "semantic":
@@ -168,7 +254,6 @@ class MemoryContext(BaseModel):
         user_id: Optional[str] = None,
         limit: Optional[int] = None
     ) -> List[MemoryObject]:
-        """Retrieve memories by type, goal, and/or user, optionally limited by recency."""
         if memory_type == "episodic":
             memories = self.episodic
         elif memory_type == "semantic":
@@ -189,10 +274,8 @@ class MemoryContext(BaseModel):
         return memories
 
     def serialize(self) -> dict:
-        """Serialize the context for logging or transfer."""
         return self.model_dump()
 
     @classmethod
     def deserialize(cls, data: dict) -> "MemoryContext":
-        """Deserialize from dict."""
         return cls(**data)

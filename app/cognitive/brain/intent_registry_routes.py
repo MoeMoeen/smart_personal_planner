@@ -58,7 +58,7 @@ ALL_INTENTS: List[Dict[str, str]] = SUPPORTED_INTENTS + SYSTEM_INTENTS
 DEFAULT_FLOW_REGISTRY = {
     # --- Plan lifecycle ---
     "create_new_plan": [
-        "plan_outline_node",
+        "planning_node",
         "user_confirm_a_node",
         "task_generation_node",
         "world_model_integration_node",
@@ -74,7 +74,7 @@ DEFAULT_FLOW_REGISTRY = {
         "persistence_node",
     ],
     "revise_plan": [
-        "plan_outline_node",           # re-generate outline
+        "planning_node",           # re-generate outline
         "user_confirm_a_node",
         "task_generation_node",        # rebuild tasks
         "world_model_integration_node",
@@ -84,7 +84,7 @@ DEFAULT_FLOW_REGISTRY = {
         "persistence_node",
     ],
     "adaptive_replan": [
-        "plan_outline_node",           # re-outline under new constraints
+        "planning_node",           # re-outline under new constraints
         "task_generation_node",
         "world_model_integration_node",
         "calendarization_node",
@@ -94,7 +94,7 @@ DEFAULT_FLOW_REGISTRY = {
     ],
     "reset_existing_plan": [
         "plan_reset_node",        # wipe/rebuild baseline
-        "plan_outline_node",
+        "planning_node",
         "user_confirm_a_node",
         "task_generation_node",
         "calendarization_node",
@@ -126,7 +126,7 @@ DEFAULT_FLOW_REGISTRY = {
     # --- Goal-level operations ---
     "update_goal": [
         "goal_update_node",
-        "plan_outline_node",
+        "planning_node",
         "user_confirm_a_node",
         "task_generation_node",
         "calendarization_node",
@@ -152,7 +152,7 @@ DEFAULT_FLOW_REGISTRY = {
     ],
     "add_constraint": [
         "constraint_node",
-        "plan_outline_node",          # constraint may require re-outline
+        "planning_node",          # constraint may require re-outline
         "task_generation_node",
         "validation_node",
         "user_confirm_b_node",
@@ -183,9 +183,9 @@ def map_intent_to_node(intent: str) -> str:
     """
     mapping = {
         "confirm_outline": "task_generation_node",
-        "revise_outline": "plan_outline_node",
+        "revise_outline": "planning_node",
         "ask_question": "conversation_node",  # if you have a small-talk node
-        "adaptive_replan": "plan_outline_node",
-        "create_new_plan": "plan_outline_node",
+        "adaptive_replan": "planning_node",
+        "create_new_plan": "planning_node",
     }
-    return mapping.get(intent, "plan_outline_node")
+    return mapping.get(intent, "planning_node")

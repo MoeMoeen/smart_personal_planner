@@ -18,7 +18,7 @@ def route_after_confirm_a(state: Any) -> str:
     if confirmed == "confirm":
         return "task_generation_node"
     if confirmed == "revise":
-        return "plan_outline_node"
+        return "planning_node"
     if confirmed == "cancel":
         return "END"
     # Default safe branch

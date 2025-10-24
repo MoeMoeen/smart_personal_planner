@@ -51,7 +51,7 @@ class NodeSpec:
     outputs: List[str] = field(default_factory=list)
     dependencies: List[str] = field(default_factory=list)
     entrypoint: Optional[Callable[..., Any]] = None
-    entrypoint_path: Optional[str] = None  # e.g., "app.nodes.plan:plan_outline_node" # "module:attr"
+    entrypoint_path: Optional[str] = None  # e.g., "app.nodes.plan:planning_node" # "module:attr"
     latency_ms: Optional[int] = None
     cost_estimate: Optional[float] = None
     memory: Optional[str] = None
