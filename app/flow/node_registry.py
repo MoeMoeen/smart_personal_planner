@@ -21,7 +21,7 @@ NODE_REGISTRY: Dict[str, NodeSpec] = {
         type="node",
         description="Ask user to confirm or revise the outline",
         inputs=["outline"],
-    dependencies=["planning_node"],
+        dependencies=["planning_node"],
         entrypoint_path="app.cognitive.nodes.user_confirmation:user_confirm_a",
     ),
     "task_generation_node": NodeSpec(
@@ -83,6 +83,40 @@ NODE_REGISTRY: Dict[str, NodeSpec] = {
         inputs=["user_input"],
         outputs=["clarified_intent"],
         entrypoint_path="app.cognitive.nodes.clarification:clarification",
+    ),
+    # Phase 5 POST_PLANNING_EDGES nodes
+    "scheduling_escalation_node": NodeSpec(
+        name="scheduling_escalation_node",
+        type="node",
+        description="Handle scheduling escalation with HITL/tooling support.",
+        inputs=["escalate_reason"],
+        outputs=["resolution"],
+        entrypoint_path="app.cognitive.nodes.scheduling_escalation:scheduling_escalation",
+    ),
+    "summary_node": NodeSpec(
+        name="summary_node",
+        type="node", 
+        description="Generate final summary and end graph execution.",
+        inputs=["response_text"],
+        outputs=["summary"],
+        entrypoint_path="app.cognitive.nodes.summary:summary",
+    ),
+    # Fallback deterministic nodes
+    "plan_outline_node_legacy": NodeSpec(
+        name="plan_outline_node_legacy",
+        type="node",
+        description="Deterministic outline generation (fallback mode only).",
+        inputs=["user_input", "goal_context"],
+        outputs=["plan_outline"],
+        entrypoint_path="app.cognitive.nodes.plan_outline_legacy:plan_outline_legacy",
+    ),
+    "sync_plans_node": NodeSpec(
+        name="sync_plans_node",
+        type="node",
+        description="Synchronize all plans across all goals.",
+        inputs=[],
+        outputs=["sync_result"],
+        entrypoint_path="app.cognitive.nodes.sync:sync_plans",
     ),
 }
 

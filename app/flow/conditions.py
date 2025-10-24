@@ -1,5 +1,15 @@
+"""
+Legacy router functions for fallback/deterministic flow conditional branching.
+
+NOTE: For post-planning routing, use app.flow.router.route_after_planning_result
+This module contains legacy routers used in deterministic fallback flows only.
+"""
+
 from __future__ import annotations
 from typing import Any
+import logging
+
+log = logging.getLogger(__name__)
 
 
 def route_after_confirm_a(state: Any) -> str:
@@ -36,3 +46,6 @@ def route_after_validation_key(state: Any) -> str:
     elif isinstance(state, dict):
         key = state.get("validation_key")
     return key or "clean"
+
+
+

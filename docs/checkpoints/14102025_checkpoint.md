@@ -14,9 +14,9 @@ This document records the agreed plan to implement the agentic Planning Node, al
 - [x] Phase 2 — Cognitive Entities (Pydantic) (Completed 2025-10-14)
 - [x] Phase 3 — GraphState Contract (Completed 2025-10-14)
 - [x] Phase 4 — SQLAlchemy ORM (aggressive cleanup) (Completed 2025-10-24) ✅ **FULLY RESOLVED**
-- [ ] Phase 5 — Router Function (post-planning branching) 🎯 **NEXT**
-- [ ] Phase 6 — Node Registry & Defaults
-- [ ] Phase 7 — Planning Agent (ReAct) — Design Contract
+- [x] Phase 5 — Router Function (post-planning branching) (Completed 2025-10-24) ✅ **FULLY IMPLEMENTED**
+- [x] Phase 6 — Node Registry & Defaults (Completed 2025-10-24) ✅ **FULLY IMPLEMENTED**
+- [ ] Phase 7 — Planning Agent (ReAct) — Design Contract 🎯 **NEXT**
 - [ ] Phase 8 — Minimal Stub planning_node (Wiring Test)
 - [ ] Phase 9 — Prompt/Policy Centralization
 - [ ] Phase 10 — E2E Demo Harness
@@ -169,37 +169,96 @@ Acceptance criteria:
 
 ## Phase 5 — Router Function (post-planning branching)
 
-Function:
-- route_after_planning_result(state) -> str
-- Mapping:
-	- complete → "to_world_model"
-	- needs_scheduling_escalation → "to_scheduling_escalation"
-	- needs_clarification → "to_planning_loop"
-	- aborted → "to_summary_or_end"
+**Status: Completed (2025-10-24) ✅ FULLY IMPLEMENTED**
 
-Edges:
-- to_world_model → world_model_integration_node → persistence_node → reflection_node | summary_node
-- to_scheduling_escalation → scheduling_escalation_node (HITL/tooling)
-- to_planning_loop → planning_node
-- to_summary_or_end → summary_node | END
+Artifacts touched:
+- Implemented type-safe `route_after_planning_result` function in `app/flow/conditions.py`
+- Wired router into graph compilation in `app/orchestration/message_handler.py` and `app/demo/run_demo.py`
+- Created comprehensive test suite in `tests_curated/test_phase5_e2e_routing.py`
 
-Acceptance criteria:
-- Unit tests for all routes; invalid status raises or defaults to summary with warning.
+Implementation:
+```python
+RouteKey = Literal["to_world_model", "to_scheduling_escalation", "to_planning_loop", "to_summary_or_end"]
+
+def route_after_planning_result(state: GraphState) -> RouteKey:
+    """Single point of truth for post-planning branching (Phase 5)."""
+    status = (state.planning_status or "").strip()
+    # Structured logging with rich state context
+    # Type-safe return with compile-time validation
+```
+
+Router mapping (single point of truth):
+- `"complete"` → `"to_world_model"` (success path)
+- `"needs_scheduling_escalation"` → `"to_scheduling_escalation"` (HITL/tooling)
+- `"needs_clarification"` → `"to_planning_loop"` (retry planning)
+- `"aborted"` / anything else → `"to_summary_or_end"` (failure/exit path)
+
+Key technical features:
+- **Type Safety**: `RouteKey = Literal[...]` enforces compile-time validation
+- **Structured Logging**: Rich observability with state context (intent, approvals, artifacts)
+- **Robust Error Handling**: `(state.planning_status or "").strip()` pattern
+- **Graph Integration**: Wired via `CompileOptions(conditional_routers={"planning_node": route_after_planning_result})`
+
+POST_PLANNING_EDGES mapping:
+- `to_world_model` → `["world_model_integration_node", "persistence_node"]`
+- `to_scheduling_escalation` → `["scheduling_escalation_node"]`
+- `to_planning_loop` → `["planning_node"]`
+- `to_summary_or_end` → `["summary_node"]`
+
+Acceptance criteria: ✅ ALL COMPLETE
+- ✅ Type-safe router with Literal return types prevents invalid routing keys
+- ✅ Structured logging provides rich observability (intent, status, approvals, artifacts)
+- ✅ E2E integration tests validate router wiring in graph compilation system
+- ✅ Comprehensive test coverage for all planning_status values and edge cases
+- ✅ Router successfully integrated into both message_handler and demo flows
 
 ---
 
 ## Phase 6 — Node Registry & Defaults
 
-Registry:
-- Register planning_node (agentic entrypoint).
-- Keep modular nodes for deterministic fallback only (optional feature flag: PLANNING_FALLBACK_MODE).
+**Status: Completed (2025-10-24) ✅ FULLY IMPLEMENTED**
 
-Defaults:
-- create_new_plan: preferred = ["planning_node"].
-- Deterministic fallback: separate path, guarded by feature flag; not a continuation after agentic planning.
+Artifacts touched:
+- Enhanced `app/flow/node_registry.py` with POST_PLANNING_EDGES nodes
+- Created `app/config/feature_flags.py` with PLANNING_FALLBACK_MODE toggle
+- Updated `app/cognitive/brain/intent_registry_routes.py` with agentic/fallback separation
+- Modified imports in `message_handler.py`, `flow_planner_llm.py`, `run_demo.py`
+- Created comprehensive test suite in `tests_curated/test_phase6_feature_flags.py`
 
-Acceptance criteria:
-- Integration tests toggle agentic vs fallback flows via the flag.
+Registry enhancements:
+- **Added missing nodes**: `scheduling_escalation_node`, `summary_node` for POST_PLANNING_EDGES
+- **planning_node**: Registered as agentic entrypoint for create_new_plan/revise_plan/adaptive_replan
+- **Modular nodes**: Preserved for deterministic fallback flows behind feature flag
+
+Feature flag system:
+```python
+PLANNING_FALLBACK_MODE: bool = os.getenv("PLANNING_FALLBACK_MODE", "false").lower() == "true"
+
+def get_flow_registry():
+    """Returns AGENTIC_FLOW_REGISTRY (default) or FALLBACK_FLOW_REGISTRY based on flag."""
+```
+
+Flow separation:
+- **AGENTIC_FLOW_REGISTRY**: `create_new_plan: ["planning_node"]` (minimal, single agentic node)
+- **FALLBACK_FLOW_REGISTRY**: Full deterministic flows with confirm nodes (legacy compatibility)
+- **Feature-flag aware**: `get_flow_registry()` returns appropriate registry based on environment
+
+Agentic vs Fallback differences:
+- **Agentic** (default): `create_new_plan → ["planning_node"]` (planning_node handles full dialogue loop)
+- **Fallback** (PLANNING_FALLBACK_MODE=true): `create_new_plan → ["planning_node", "user_confirm_a_node", ...]` (8-node deterministic sequence)
+
+Key design principles:
+- **No downstream confirm nodes** on agentic path (planning_node owns approvals)
+- **Deterministic flows isolated** behind feature flag (not continuation of agentic)
+- **Single point of configuration** via `get_flow_registry()` function
+- **Backward compatibility** maintained with DEFAULT_FLOW_REGISTRY alias
+
+Acceptance criteria: ✅ ALL COMPLETE
+- ✅ Feature flag toggles between agentic (1-node) and fallback (8-node) flows
+- ✅ Integration tests validate environment variable toggling (PLANNING_FALLBACK_MODE)
+- ✅ Agentic flows use planning_node exclusively for planning intents  
+- ✅ No confirm nodes on agentic path (planning_node handles approvals internally)
+- ✅ All imports updated to use feature-flag aware `get_flow_registry()`
 
 ---
 

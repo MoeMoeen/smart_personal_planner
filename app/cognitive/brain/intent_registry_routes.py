@@ -52,13 +52,31 @@ ALL_INTENTS: List[Dict[str, str]] = SUPPORTED_INTENTS + SYSTEM_INTENTS
 
 
 # --------------------------------------------------------------------
-# Fallback deterministic flows (sequences of nodes) for when LLM planning is unavailable or fails.
+# Phase 6: Agentic vs Fallback Flow Configuration
 # --------------------------------------------------------------------
 
-DEFAULT_FLOW_REGISTRY = {
-    # --- Plan lifecycle ---
+# Agentic flows: planning_node handles entire dialogue loop and approvals
+# No downstream confirm nodes when planning succeeds
+AGENTIC_FLOW_REGISTRY = {
+    # --- Plan lifecycle (agentic path) ---
+    "create_new_plan": ["planning_node"],  # Single agentic node handles full flow
+    "revise_plan": ["planning_node"],      # Re-planning via agentic approach
+    "adaptive_replan": ["planning_node"],  # Adaptive re-planning
+    
+    # --- Direct operations (no planning needed) ---
+    "update_task": ["update_task_node", "persistence_node"],
+    "reschedule_task": ["reschedule_task_node", "persistence_node"], 
+    "remove_task": ["remove_task_node", "persistence_node"],
+    "show_summary": ["summary_node"],
+    "sync_all_plans_across_all_goals": ["sync_plans_node"],
+}
+
+# Deterministic fallback flows: modular nodes for legacy/fallback mode
+# Used when PLANNING_FALLBACK_MODE=True or agentic planning fails
+FALLBACK_FLOW_REGISTRY = {
+    # --- Plan lifecycle (deterministic fallback) ---
     "create_new_plan": [
-        "planning_node",
+        "plan_outline_node_legacy",   # deterministic, not planning_node
         "user_confirm_a_node",
         "task_generation_node",
         "world_model_integration_node",
@@ -74,7 +92,7 @@ DEFAULT_FLOW_REGISTRY = {
         "persistence_node",
     ],
     "revise_plan": [
-        "planning_node",           # re-generate outline
+        "plan_outline_node_legacy",   # deterministic re-outline
         "user_confirm_a_node",
         "task_generation_node",        # rebuild tasks
         "world_model_integration_node",
@@ -84,7 +102,7 @@ DEFAULT_FLOW_REGISTRY = {
         "persistence_node",
     ],
     "adaptive_replan": [
-        "planning_node",           # re-outline under new constraints
+        "plan_outline_node_legacy",   # deterministic re-outline under constraints
         "task_generation_node",
         "world_model_integration_node",
         "calendarization_node",
@@ -94,7 +112,7 @@ DEFAULT_FLOW_REGISTRY = {
     ],
     "reset_existing_plan": [
         "plan_reset_node",        # wipe/rebuild baseline
-        "planning_node",
+        "plan_outline_node_legacy",
         "user_confirm_a_node",
         "task_generation_node",
         "calendarization_node",
@@ -126,7 +144,7 @@ DEFAULT_FLOW_REGISTRY = {
     # --- Goal-level operations ---
     "update_goal": [
         "goal_update_node",
-        "planning_node",
+        "plan_outline_node_legacy",
         "user_confirm_a_node",
         "task_generation_node",
         "calendarization_node",
@@ -152,15 +170,15 @@ DEFAULT_FLOW_REGISTRY = {
     ],
     "add_constraint": [
         "constraint_node",
-        "planning_node",          # constraint may require re-outline
+        "plan_outline_node_legacy",   # constraint may require re-outline
         "task_generation_node",
         "validation_node",
         "user_confirm_b_node",
         "persistence_node",
     ],
     "sync_all_plans_across_all_goals": [
-        "sync_node",
-        "validation_node",
+        "sync_plans_node",
+        "validation_node", 
         "user_confirm_b_node",
         "persistence_node",
     ],
@@ -174,12 +192,35 @@ DEFAULT_FLOW_REGISTRY = {
     "clarify": ["clarification_node"],
 }
 
+# Phase 6: Feature-flag aware flow selection
+def get_flow_registry():
+    """
+    Get the appropriate flow registry based on feature flags.
+    
+    Returns:
+        AGENTIC_FLOW_REGISTRY if PLANNING_FALLBACK_MODE=False (default)
+        FALLBACK_FLOW_REGISTRY if PLANNING_FALLBACK_MODE=True
+    """
+    from app.config.feature_flags import is_fallback_mode_enabled
+    
+    if is_fallback_mode_enabled():
+        return FALLBACK_FLOW_REGISTRY
+    else:
+        return AGENTIC_FLOW_REGISTRY
+
+# Maintain backward compatibility
+DEFAULT_FLOW_REGISTRY = FALLBACK_FLOW_REGISTRY  # Legacy name points to fallback
+
 
 def map_intent_to_node(intent: str) -> str:
     """
+    LEGACY FUNCTION - DO NOT USE IN NEW CODE
+    
     Map high-level intent names to graph node names.
-    In real system, you could load from config or registry.
-    Mapping format is <intent_name>: <node_name>
+    
+    DEPRECATED: Use get_flow_registry() and the flow planner as authoritative source.
+    This function partially duplicates the registries and should not be used 
+    in new code paths. Kept only for backward compatibility.
     """
     mapping = {
         "confirm_outline": "task_generation_node",

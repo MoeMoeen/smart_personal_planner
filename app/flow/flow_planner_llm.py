@@ -9,7 +9,7 @@ import logging
 from app.cognitive.contracts.types import MemoryContext
 from app.cognitive.utils.llm_backend import get_llm_backend, ChatMessage
 from app.flow.flow_compiler import NodeSpec
-from app.cognitive.brain.intent_registry_routes import DEFAULT_FLOW_REGISTRY
+from app.cognitive.brain.intent_registry_routes import get_flow_registry
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def build_planner_messages(intent: str, memory_context: MemoryContext, registry:
         "Reference defaults (for safety only, not mandatory), "
         "which are deterministic default flows used as a last resort. "
         "You don't have to follow them, but you may take inspiration and are still encouraged to improve or adapt them if context suggests:\n"
-        f"{json.dumps(DEFAULT_FLOW_REGISTRY, indent=2)}\n"
+        f"{json.dumps(get_flow_registry(), indent=2)}\n"
     )
 
     # Compact registry spec for the LLM

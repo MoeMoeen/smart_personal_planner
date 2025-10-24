@@ -7,12 +7,12 @@ from app.flow.flow_compiler import FlowCompiler, CompileOptions
 from app.flow.adapters.langgraph_adapter import LangGraphBuilderAdapter
 from app.flow.node_registry import NODE_REGISTRY
 from app.cognitive.state.graph_state import GraphState
-from app.cognitive.brain.intent_registry_routes import DEFAULT_FLOW_REGISTRY
+from app.cognitive.brain.intent_registry_routes import get_flow_registry
 # from app.flow.conditions import route_after_confirm_a  # router (legacy, not used in agentic path)
 
 logger = logging.getLogger(__name__)
 
-async def handle_user_message(user_id: int, user_message: str, memory_context) -> str:
+def handle_user_message(user_id: int, user_message: str, memory_context) -> str:
     """
     Orchestrates one user message end-to-end:
     1. Detect intent
@@ -32,16 +32,17 @@ async def handle_user_message(user_id: int, user_message: str, memory_context) -
         intent=intent,
         memory_context=memory_context,
         registry=NODE_REGISTRY,
-        defaults=DEFAULT_FLOW_REGISTRY,
+        defaults=get_flow_registry(),
         parameters=params,
     )
     if not sequence:
         return "❌ Sorry, I couldn’t figure out a valid flow plan for that."
 
     # Step C: compile graph with routers
+    from app.flow.router import route_after_planning_result
     compiler = FlowCompiler(lambda: LangGraphBuilderAdapter(GraphState))
     options = CompileOptions(
-        conditional_routers={}
+        conditional_routers={"planning_node": route_after_planning_result}
     )
     graph = compiler.compile(plan=sequence, registry=NODE_REGISTRY, options=options)
 
