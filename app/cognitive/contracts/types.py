@@ -33,6 +33,50 @@ PatternSubtype = Literal[
 DependencyType = Literal["finish_to_start", "start_to_start", "finish_to_finish", "start_to_finish"]
 
 
+# ─────────────────────────────────────────────────────────────
+# Pattern specification & Interaction policy
+# ─────────────────────────────────────────────────────────────
+
+class PatternSpec(BaseModel):
+    """Selected planning pattern with optional subtype/variant and confidence.
+
+    Note: pattern_type must be one of the canonical top-level patterns.
+    Subtypes may include proposed:<name> to indicate an RFC-style proposal.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    pattern_type: PatternType
+    subtype: Optional[str] = None  # e.g., "protocol_routine" or "proposed:daily_health_protocol_v2"
+    variant: Optional[str] = None  # e.g., "acute_recovery_1-2w"
+    confidence: Optional[float] = None
+    introduced_by: Optional[Origin] = None  # who proposed/selected this pattern
+    source_pattern: Optional[str] = None  # when proposing, note the closest existing subtype/pattern
+    rfc: Optional[str] = None  # rationale when proposing a new subtype
+
+
+ConversationStyle = Literal["concise", "standard", "conversational", "coach"]
+AutonomyLevel = Literal["high", "medium", "low"]
+BrainstormingPref = Literal["on_demand", "suggest_when_uncertain", "always_offer"]
+ApprovalPolicy = Literal["single_final", "milestone_approvals", "strict_every_step"]
+Tone = Literal["neutral", "friendly", "clinical"]
+
+
+class InteractionPolicy(BaseModel):
+    """User interaction preferences that modulate agent behavior each turn.
+
+    Stored long-term in MemoryContext; session overrides in GraphState.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_style: ConversationStyle = "standard"
+    talkativeness: float = 0.5  # 0..1
+    autonomy: AutonomyLevel = "medium"
+    brainstorming_preference: BrainstormingPref = "suggest_when_uncertain"
+    approval_policy: ApprovalPolicy = "milestone_approvals"
+    probing_depth: int = 1  # 0..3 typical range
+    tone: Tone = "friendly"
+
+
 class Dependency(BaseModel):
     """Directed relationship from this node to 'node_id' with a precedence rule."""
     model_config = ConfigDict(extra="forbid")
@@ -103,6 +147,7 @@ class StrategyProfile(BaseModel):
 class PlanContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
     strategy_profile: StrategyProfile
+    pattern: Optional[PatternSpec] = None
     assumptions: Optional[Dict[str, object]] = None
     constraints: Optional[Dict[str, object]] = None
     user_prefs: Optional[Dict[str, object]] = None
@@ -110,8 +155,13 @@ class PlanContext(BaseModel):
 
 class RoadmapContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    pattern_type: PatternType
+    # DEPRECATED: pattern_type/subtype retained for compatibility; source of truth is `pattern`.
+    pattern_type: Optional[PatternType] = Field(
+        default=None,
+        description="DEPRECATED: present for backward compatibility—source of truth is `pattern`."
+    )
     subtype: Optional[PatternSubtype] = None
+    pattern: Optional[PatternSpec] = None
     scope: Optional[str] = None
     cadence: Optional[str] = None
     stack: Optional[List[str]] = None
@@ -130,6 +180,7 @@ class PlanOutline(BaseModel):
     root_id: UUID
     plan_context: PlanContext
     nodes: List[PlanNode]
+    pattern: Optional[PatternSpec] = None
 
     @model_validator(mode="after")
     def _root_must_exist(self):
@@ -143,6 +194,7 @@ class Roadmap(BaseModel):
     root_id: UUID
     roadmap_context: RoadmapContext
     nodes: List[PlanNode]
+    pattern: Optional[PatternSpec] = None
 
     @model_validator(mode="after")
     def _root_must_exist(self):
@@ -236,6 +288,8 @@ class MemoryContext(BaseModel):
     session_id: Optional[str] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: Optional[str] = None
+    # Long-term user interaction preferences; session overrides live in GraphState
+    interaction_policy: Optional[InteractionPolicy] = None
 
     def add_memory(self, memory: MemoryObject):
         if memory.type == "episodic":

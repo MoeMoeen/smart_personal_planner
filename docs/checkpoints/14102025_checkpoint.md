@@ -172,9 +172,10 @@ Acceptance criteria:
 **Status: Completed (2025-10-24) ✅ FULLY IMPLEMENTED**
 
 Artifacts touched:
-- Implemented type-safe `route_after_planning_result` function in `app/flow/conditions.py`
+- Implemented type-safe `route_after_planning_result` function in `app/flow/router.py` (moved from conditions.py during correctness fixes)
 - Wired router into graph compilation in `app/orchestration/message_handler.py` and `app/demo/run_demo.py`
 - Created comprehensive test suite in `tests_curated/test_phase5_e2e_routing.py`
+- **Post-completion correctness fixes**: 7 systematic fixes including module reorganization, deterministic fallback flows, node naming consistency, and code duplication cleanup
 
 Implementation:
 ```python
@@ -262,7 +263,48 @@ Acceptance criteria: ✅ ALL COMPLETE
 
 ---
 
-## Phase 7 — Planning Agent (ReAct) — Design Contract
+## Post-Phase 6 Correctness Fixes (2025-10-24)
+
+**Status: Completed ✅ ALL ISSUES RESOLVED**
+
+Following Phase 5-6 completion, comprehensive correctness review identified and systematically resolved 7 critical issues:
+
+**Issue Resolution Summary:**
+1. **Non-deterministic fallback flows**: Fixed by replacing `planning_node` with `plan_outline_node_legacy` in FALLBACK_FLOW_REGISTRY
+2. **Node naming inconsistency**: Unified `sync_plans_node` naming across node_registry.py and intent_registry_routes.py  
+3. **Syntax errors**: Corrected NodeSpec class instantiation syntax in node_registry.py
+4. **Import path problems**: Created dedicated `app.flow.router` module and updated all imports
+5. **Async/sync mismatch**: Changed `handle_user_message` from async to sync in message_handler.py
+6. **Missing nodes**: Added `scheduling_escalation_node` and `summary_node` to node registry
+7. **Code duplication**: Eliminated duplicate router functions between router.py and conditions.py
+
+**Module Reorganization:**
+- **app/flow/router.py**: Canonical location for agentic flow routing functions (`route_after_planning_result`, `RouteKey`)
+- **app/flow/conditions.py**: Legacy router functions for deterministic fallback flows only (`route_after_confirm_a`, `route_after_validation_key`)
+- **Clean separation**: Agentic vs fallback routing with no code duplication
+
+**Validation Results:**
+- ✅ All 7 issues systematically addressed and tested
+- ✅ Router functionality validated: "complete -> to_world_model ✅"  
+- ✅ All Phase 5 tests passing (4/4 ✅)
+- ✅ Feature flag toggling working correctly
+- ✅ Clean module separation established
+
+**Key Artifacts:**
+- Deterministic fallback flows using `plan_outline_node_legacy` instead of `planning_node`
+- Dedicated router module with clear responsibilities (`app.flow.router` vs `app.flow.conditions`)
+- Comprehensive test coverage for all corrected functionality
+- Enhanced node registry with missing POST_PLANNING_EDGES nodes
+
+**Architecture Impact:**
+- **Robust fallback flows**: Deterministic behavior guaranteed for PLANNING_FALLBACK_MODE=true
+- **Clean code organization**: No duplicate functions, clear module responsibilities  
+- **Type safety preserved**: Router functionality maintains compile-time validation
+- **Maintainable structure**: Clear separation between agentic and legacy routing logic
+
+---
+
+## Phase 7 — Planning Agent (ReAct) — Design Contract 🎯 **NEXT**
 
 Tools:
 - PatternSelector, GrammarComposer, StructureValidator,
@@ -374,7 +416,9 @@ Router:
 ✅ Surgical deltas applied: progress Float alignment, self-referential disambiguation, root uniqueness constraint.
 ✅ **Migration schema mismatch resolved**: Corrective migration (989b0456e09e) + hotfix (038a9bb842fd) successfully applied.
 ✅ **Full validation completed**: CRUD operations, relationships, constraints, JSONB fields, CASCADE behavior all verified.
-- [ ] Router implemented + covered by tests. 🎯 **IN PROGRESS**
+✅ **Router implemented + covered by tests**: Phase 5 type-safe router with comprehensive E2E tests ✅ **FULLY COMPLETED**
+✅ **Node registry enhanced with feature flags**: Phase 6 agentic/fallback separation with PLANNING_FALLBACK_MODE toggle ✅ **FULLY COMPLETED** 
+✅ **Correctness fixes applied**: 7 systematic fixes including module reorganization, deterministic flows, code cleanup ✅ **ALL ISSUES RESOLVED**
 - [ ] Minimal stub planning_node validates wiring.
 - [ ] Fallback flows isolated behind optional flag.
 - [ ] E2E harness and structured logs provide clear visibility.
@@ -385,4 +429,5 @@ Router:
 
 - 2025-10-14: Initial execution plan recorded based on v1.2/v1.3 alignment and aggressive cleanup decision.
 - 2025-10-24: Phase 4 FULLY COMPLETED - aggressive ORM cleanup with surgical deltas applied and migration schema mismatch RESOLVED. Code changes complete: legacy cleanup, removed HabitCycle/GoalOccurrence/Task tables, added PlanNode with UUID PKs and proper constraints, enhanced ScheduledTask with plan_node_id FK. Perfect 1:1 alignment with Pydantic contracts achieved. ✅ Database migration successfully applied with corrective migration (989b0456e09e) and hotfix (038a9bb842fd). ✅ Full CRUD operations, relationships, constraints, JSONB fields, and CASCADE behavior validated via smoke test.
+- 2025-10-24: Phase 5 & 6 FULLY COMPLETED - ✅ Type-safe router implementation with comprehensive E2E tests (Phase 5). ✅ Feature flag system with agentic/fallback separation via PLANNING_FALLBACK_MODE toggle (Phase 6). ✅ Post-completion correctness fixes: Systematic resolution of 7 critical issues including router module reorganization (app.flow.router vs app.flow.conditions), deterministic fallback flows using plan_outline_node_legacy, node naming consistency, syntax fixes, and code duplication elimination. System now has robust agentic vs fallback architecture with clean module separation and comprehensive validation. Ready for Phase 7 Planning Agent (ReAct) design.
 

@@ -20,7 +20,7 @@ class TestPhase6FeatureFlagToggling:
         """Test that feature flags have correct default values."""
         # Default should be agentic mode (fallback=False)
         assert not is_fallback_mode_enabled()
-        assert FEATURE_FLAGS["PLANNING_FALLBACK_MODE"] == False
+        assert not FEATURE_FLAGS["PLANNING_FALLBACK_MODE"]
     
     def test_agentic_flow_registry_structure(self):
         """Test that agentic flows are minimal (planning_node only for planning intents)."""

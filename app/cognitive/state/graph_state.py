@@ -6,6 +6,8 @@ from app.cognitive.contracts.types import (
     Roadmap,
     Schedule,
     AdaptationLogEntry,
+    PatternSpec,
+    InteractionPolicy,
 )
 
 class GraphState(BaseModel):
@@ -27,6 +29,20 @@ class GraphState(BaseModel):
     )
     schedule: Optional[Schedule] = Field(
         default=None, description="Time-bound instantiation of the plan (Schedule)."
+    )
+
+    # Pattern selection and RFC signals
+    selected_pattern: Optional[PatternSpec] = Field(
+        default=None,
+        description="Pattern chosen by the agent (type, subtype, variant, confidence).",
+    )
+    pattern_rfc_required: bool = Field(
+        default=False,
+        description="True if agent proposes a new subtype and needs approval.",
+    )
+    pattern_rfc_text: Optional[str] = Field(
+        default=None,
+        description="Short RFC snippet explaining the proposed subtype and rationale.",
     )
 
     outline_approved: bool = Field(
@@ -75,6 +91,11 @@ class GraphState(BaseModel):
     )
     world_model: Optional[Dict[str, Any]] = Field(
         default=None, description="Integrated world state (calendar, constraints, etc.)."
+    )
+
+    # Session-level interaction policy overrides (long-term defaults in MemoryContext)
+    interaction_policy: Optional[InteractionPolicy] = Field(
+        default=None, description="Session overrides for user interaction style."
     )
 
     validation_result: Optional[Dict[str, Any]] = Field(
