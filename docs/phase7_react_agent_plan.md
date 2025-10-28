@@ -142,6 +142,24 @@ Purpose: Track every interim shortcut introduced during early implementation. Th
     - Current: "propose changes: …" feedback is not interpreted; no loop-back to repair stages.
     - Exit criteria: Route change requests back to appropriate draft/validate stage with retry budget; tests cover round-trips.
 
+### Step 7 — LangGraph agent + prompts + checkpoints (scaffold)
+
+- Agent integration is scaffolded
+    - Current: `react_agent.py` provides wrappers to create a ReAct agent using `create_react_agent`, `StructuredTool` wrappers around our tools, and `SqliteSaver` checkpointer. LLM is lazily constructed and guarded.
+    - Exit criteria: Controller invokes the LangGraph agent per stage; thread_id/checkpoint_ns wired; state persisted between turns.
+
+- Prompts are placeholders
+    - Current: `prompts.py` defines minimal system and tool-level prompts; not yet policy-rich or grammar-detailed.
+    - Exit criteria: Author prompts for agent and tools (PatternSelector, RoadmapBuilder, Summarizer, etc.), reflecting policy and grammar; tests assert prompt keys exist.
+
+- Cost tracking and composite confidence not implemented in agent loop
+    - Current: No real cost tracking; no composite confidence computation inside LangGraph loop.
+    - Exit criteria: Track cost per tool/model call; compute C and gate transitions; surface in traces.
+
+- Registry and persistent caching are minimal
+    - Current: No production registry; session caching limited; SqliteSaver available but not driven by controller.
+    - Exit criteria: Production registry with dependencies; persistent caching keyed by model/version + policy.
+
 
 ### Technical debt checklist (Steps 1–6)
 
@@ -171,6 +189,10 @@ Note: The Step column refers to the Implementation order items 1–8 at the end 
 | 6 | Tools — Utility | ApprovalHandler (async path, CTA templates) | [ ] Open |
 | 6 | Controller | SEEK_APPROVAL integration (resume flow post-approval) | [ ] Open |
 | 6 | RFC Policy | Enforce REQUIRE_RFC_FOR_NEW_SUBTYPE and set GraphState flags | [ ] Open |
+| 7 | Agent | create_react_agent wired + SqliteSaver checkpoints | [ ] Open |
+| 7 | Prompts | Author and wire prompts (agent + tools) | [ ] Open |
+| 7 | Budget/Confidence | Real cost tracking + composite C in agent loop | [ ] Open |
+| 7 | Registry/Caching | Production registry + persistent cache keys | [ ] Open |
 
 Out-of-scope for Steps 1–6 (tracked in later steps):
 - RFC/Approvals full wiring beyond minimal sync (Step 6 complete path is iterative)
