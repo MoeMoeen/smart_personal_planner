@@ -1,8 +1,10 @@
-# Phase 7 — ReAct Planning Agent (Final Design)
+# Phase 7 — High-Autonomy ReAct Planning Agent (Final Design)
 
-Status: Proposal ready for implementation (no code changes in this step)
+Status: Updated to High-Autonomy design (controller as thin harness). Implementation partially in progress; no breaking changes required.
 
-Scope: Production-grade agentic planning node powered by LangGraph ReAct with explicit controller state machine, atomic tools, PatternSpec + RFC flow, InteractionPolicy (user style), checkpoints, budget controls, and quantitative confidence thresholds. Aligned with v1.2 (patterns/grammar/dual-axis) and v1.3 (MegaGraph + routing).
+Scope: Production-grade agentic planning node powered by LangGraph ReAct where the agent owns sequencing (think → decide → tool → observe) and the controller is a minimal safety harness. Tools are atomic (LLM + deterministic), PatternSpec + RFC flow is first-class, InteractionPolicy drives UX, and the controller enforces budgets, checkpoints, schemas, and validators. Aligned with v1.2 (patterns/grammar/dual-axis) and v1.3 (MegaGraph + routing).
+
+Note on design shift: The prior design emphasized an outer controller state machine orchestrating stages while the agent executed within them. The new High-Autonomy design flips ownership: the ReAct agent chooses which tool to call and when; the controller validates, budgets, checkpoints, and persists. The previous controller FSM remains as a fallback path for safety and CI stability.
 
 
 ## Technical debt — stubs and temporary simplifications (Steps 1–6)
@@ -46,22 +48,24 @@ Purpose: Track every interim shortcut introduced during early implementation. Th
     - Current: Tools expose prerequisites/produces; controller doesn’t enforce.
     - Exit criteria: Pre-flight checks validate prerequisites; errors return ToolResult(ok=False, confidence=0.0); tests simulate mis-ordered calls.
 
-### Step 3 — Tool skeletons
+### Step 3 — Tool skeletons (updated for High-Autonomy)
 
-- Core tools return placeholders (no LLM/logic)
-    - PatternSelectorTool: ok=False; no mapping, confidence, or RFC generation.
-    - GrammarValidatorTool: ok=False; no invariants/dual-axis checks or fixes.
-    - NodeGeneratorTool: ok=False; no PlanOutline construction/dual-axis metadata/origin tags.
-    - Exit criteria: Each tool produces valid outputs under mocked LLM; unit tests verify schemas and invariants.
+- Core tools (status update)
+    - PatternSelectorTool: LLM-backed with structured output and RFC fields (implemented; gated by feature flag).
+    - GrammarValidatorTool: stub; invariants/dual-axis checks + repair suggestions pending (to be upgraded to LLM-backed).
+    - NodeGeneratorTool: LLM-backed PlanOutline generation with structured output (implemented; gated by feature flag).
+    - Exit criteria: All core tools produce valid outputs (mocked LLM tests). GrammarValidator upgraded with rules + auto-repair suggestions.
 
-- Utility tools exist but are deterministic stubs (Step 3 scope)
-    - BrainstormerTool: ok=True deterministic echo of topic; no LLM or ideation heuristics.
-    - OptionCrafterTool: ok=True deterministic variants; no LLM or contrastive reasoning.
-    - Exit criteria: Integrate LLM-backed variants; policy-aware diversity and brevity; tests verify option quality knobs.
+- Utility tools (updated)
+    - ClarifierTool (new): Ask a single, specific question when inputs are missing; agent calls this autonomously to elicit context (implemented, deterministic; respects style).
+    - BrainstormerTool: deterministic stub; will be upgraded to LLM-backed for ideation heuristics.
+    - OptionCrafterTool: deterministic stub; will be upgraded to LLM-backed for contrastive options.
+    - Summarizer: add minimal stub to shape user-facing summaries per policy.
+    - Exit criteria: Clarifier wired; Brainstormer/OptionCrafter upgraded to LLM; Summarizer stub present and policy-aware.
 
-- Registry helper is stub-only (deferred beyond Step 4)
-    - get_planning_tool_skeletons: returns only skeletons; no full registry or dependency graph.
-    - Note: Production registry replacement is outside Steps 1–4 and will be tracked in later steps.
+- Registry/helper
+    - Structured tool registry provided to `create_react_agent` (current mapping includes Clarifier, PatternSelector, GrammarValidator, NodeGenerator, RoadmapBuilder, ScheduleGenerator, PortfolioProbe, ApprovalHandler).
+    - Note: Production registry and dependency graph remain a later enhancement.
 
 - Additional tools (outside Steps 1–5)
     - DependencyResolver, PreferenceProbe.
@@ -75,23 +79,23 @@ Purpose: Track every interim shortcut introduced during early implementation. Th
     - Current: ToolExecutor caches by params hash; no persistence.
     - Exit criteria: Integrate LangGraph SqliteSaver checkpointing; cache keys include model/version and InteractionPolicy.
 
-### Step 4 — Controller state machine scaffold
+### Step 4 — Controller (thin harness) — supersedes FSM in High-Autonomy mode
 
-- Partial stages and early exits
-    - Current: Implements COLLECT_CONTEXT → DRAFT_OUTLINE → VALIDATE_OUTLINE; other stages stubbed; returns needs_clarification.
-    - Exit criteria: Implement DRAFT_ROADMAP/VALIDATE_ROADMAP, DRAFT_SCHEDULE/VALIDATE_SCHEDULE, SEEK_APPROVAL; happy path reaches COMPLETE under mocks.
+- High-Autonomy controller path
+    - Current: When High-Autonomy flag is enabled, the controller delegates the entire planning loop to the ReAct agent and acts only as a safety harness (budgets, schema validation, checkpoints, persistence, tracing). The prior FSM is retained as a fallback path.
+    - Exit criteria: Agent-first path is default for planning; fallback FSM remains gated for CI/stability.
 
-- No LangGraph integration yet
-    - Current: Direct tool calls; no create_react_agent or SqliteSaver.
-    - Exit criteria: Controller invokes LangGraph ReAct agent per stage; checkpoints written with thread IDs.
+- Agent integration
+    - Current: `react_agent.py` wraps tools as structured tools and builds a ReAct agent with SqliteSaver checkpoints; controller invokes agent with `thread_id`.
+    - Exit criteria: Controller passes through calls (no stage orchestration); thread_id/checkpoint_ns wired; resume verified.
 
-- Budget/cost and confidence not computed
-    - Current: Per-turn budget check uses 0.0; no cost deltas; no composite confidence.
-    - Exit criteria: Track cost_delta per step; compute composite confidence C; thresholds gate transitions; traces record both.
+- Budget/cost and confidence
+    - Current: Budget placeholders exist; no real cost tracking or composite confidence yet.
+    - Exit criteria: Track model/tool costs; compute composite confidence; thresholds aid controller safety decisions.
 
-- Prerequisites/produces not enforced
-    - Current: Metadata exists but not validated before tool execution.
-    - Exit criteria: Pre-flight checks reject invalid ordering; errors captured in trace; tests ensure enforcement.
+- Prerequisites/produces
+    - Current: Metadata present; agent decides sequencing. Controller may still pre-flight critical dependencies in fallback path.
+    - Exit criteria: Safety checks for obvious mis-ordering (fallback); agent tool docs guide correct usage.
 
 - RFC flow and approvals not wired
     - Current: No ApprovalHandler; pattern_rfc_required/text never set; selected_pattern not propagated into PlanContext/Outline/Roadmap mirrors.
@@ -142,23 +146,32 @@ Purpose: Track every interim shortcut introduced during early implementation. Th
     - Current: "propose changes: …" feedback is not interpreted; no loop-back to repair stages.
     - Exit criteria: Route change requests back to appropriate draft/validate stage with retry budget; tests cover round-trips.
 
-### Step 7 — LangGraph agent + prompts + checkpoints (scaffold)
+### Step 7 — High-Autonomy ReAct agent + prompts + checkpoints
 
-- Agent integration is scaffolded
-    - Current: `react_agent.py` provides wrappers to create a ReAct agent using `create_react_agent`, `StructuredTool` wrappers around our tools, and `SqliteSaver` checkpointer. LLM is lazily constructed and guarded.
-    - Exit criteria: Controller invokes the LangGraph agent per stage; thread_id/checkpoint_ns wired; state persisted between turns.
+- Agent integration (agent-first)
+    - Current: `react_agent.py` creates a ReAct agent with the full tool registry (including Clarifier). Controller delegates entire planning flow when enabled. SqliteSaver is configured; `thread_id` set for continuity.
+    - Exit criteria: High-Autonomy path is primary; controller does not orchestrate stages. Agent owns tool selection/order.
 
-- Prompts are placeholders
-    - Current: `prompts.py` defines minimal system and tool-level prompts; not yet policy-rich or grammar-detailed.
-    - Exit criteria: Author prompts for agent and tools (PatternSelector, RoadmapBuilder, Summarizer, etc.), reflecting policy and grammar; tests assert prompt keys exist.
+- Prompts
+    - Current: System prompt guides tool-only reasoning; more policy- and grammar-rich prompts needed.
+    - Exit criteria: Author agent/tool prompts emphasizing autonomy + safety: use Clarifier early, validate before finalize, respect InteractionPolicy.
 
-- Cost tracking and composite confidence not implemented in agent loop
-    - Current: No real cost tracking; no composite confidence computation inside LangGraph loop.
-    - Exit criteria: Track cost per tool/model call; compute C and gate transitions; surface in traces.
+- Cost/confidence
+    - Current: Not yet implemented within agent loop.
+    - Exit criteria: Add callbacks to collect token usage; compute composite C; controller enforces soft caps.
 
-- Registry and persistent caching are minimal
-    - Current: No production registry; session caching limited; SqliteSaver available but not driven by controller.
-    - Exit criteria: Production registry with dependencies; persistent caching keyed by model/version + policy.
+- Registry/caching
+    - Current: StructuredTool registry is in place. Persistent caching remains future work.
+    - Exit criteria: Production registry + persistent cache keys (model/version + policy).
+
+#### Example (High-Autonomy) — “Flu recovery” (summary)
+1) Agent calls PatternSelector → recurring_cycle/protocol_routine.
+2) Agent calls Clarifier to elicit missing context (kitchen access, meds, preferences).
+3) Agent calls NodeGenerator → PlanOutline; then GrammarValidator → valid.
+4) Agent calls RoadmapBuilder → daily cadence, options_tried.
+5) Agent calls ScheduleGenerator → morning/evening blocks.
+6) Agent calls ApprovalHandler per policy → approve or propose changes.
+Controller: validates schemas, budgets, checkpoints, persists, traces; no stage orchestration.
 
 
 ### Technical debt checklist (Steps 1–6)
@@ -208,8 +221,8 @@ Design Sections:
 
 - Single source of truth: PlanOutline → Roadmap → Schedule (Pydantic contracts)
 - Tools-only ReAct; free text is user-facing only
-- Deterministic guardrails: a rule validator must pass before advancing stages
-- Explicit controller state machine with hard caps (turns, time, budget)
+- Deterministic guardrails: a rule validator must pass before finalizing artifacts
+- Controller is a thin harness (budgets, time caps, schema/validator gates, checkpoints)
 - Observability-first: per-step trace + AdaptationLogEntry for structural changes
 - Router semantics unchanged; planning node owns approvals and emits planning_status accordingly
 
@@ -226,167 +239,22 @@ Agent behavior:
 - Router remains unchanged; no new keys introduced
 
 
-## 2) Controller state machine (outer loop)
+## 2) Controller (thin harness) and fallback FSM
 
-States:
-- COLLECT_CONTEXT → DRAFT_OUTLINE → VALIDATE_OUTLINE
-- DRAFT_ROADMAP → VALIDATE_ROADMAP
-- DRAFT_SCHEDULE → VALIDATE_SCHEDULE
-- SEEK_APPROVAL → COMPLETE | NEEDS_CLARIFICATION | NEEDS_SCHED_ESCALATION | ABORTED
+Primary behavior (High-Autonomy):
+- The controller does not orchestrate stages. It delegates to the agent, enforces hard caps (turns/time/budget), validates outputs (schemas + GrammarValidator), checkpoints, persists, and logs trace data. It returns agent prompts to the user when the agent needs more info.
 
-Transitions (examples):
-- VALIDATE_OUTLINE: valid → DRAFT_ROADMAP; invalid (repairable) → DRAFT_OUTLINE (≤2 retries); invalid (fatal) → NEEDS_CLARIFICATION
-- VALIDATE_SCHEDULE: infeasible (capacity/conflicts) → NEEDS_SCHED_ESCALATION
-
-Hard caps (config):
-- TURN_LIMIT=10, RETRY_LIMIT_PER_STAGE=2, WALL_TIME_SEC=45, BUDGET_PER_SESSION_USD=2.0, SOFT_BUDGET_PER_TURN_USD=0.30
-
-Approval handling (separated):
-- Agent produces artifacts then calls ApprovalHandler inside SEEK_APPROVAL
-- If async/pause required: set planning_status="needs_clarification" and response_text with a single explicit CTA (e.g., "Reply 'approve' or 'propose changes: …'")
-
-
-💡 What the Controller State Machine is
-
-In our architecture, the controller is the “brain behind the brain.”
-It sits above the ReAct agent and coordinates its workflow — deciding what stage of planning we’re in, what tool to use next, and when to stop or escalate.
-
-You can think of it as the director of the movie, while the ReAct agent and its tools are the actors.
-
----
-
-🧩 1. Context in our system
-Our planning node (the agentic meganode) needs to move in a predictable, controlled sequence:
-
-Collect context → Draft outline → Validate → Build roadmap → Validate → Build schedule → Validate → Seek approval → Done
-Each of those bold steps is a state.
-
-The controller state machine governs these transitions — it ensures the agent:
-does not skip ahead (e.g., can’t build a schedule before validating outline),
-
-handles validation failures gracefully (retry or clarify),
-
-stops looping infinitely, and
-knows when to escalate (e.g., to scheduling escalation or user clarification).
-
----
-⚙️ 2. Technically: what it does
-
-Formally, the controller:
-Keeps track of the current state (COLLECT_CONTEXT, DRAFT_OUTLINE, etc.).
-
-Decides what the next state should be based on the results returned by the tools or the agent.
-Enforces caps (time, turns, retries, budget).
-
-Writes observability traces (stage, confidence, violations, adaptations).
-
-Updates the GraphState with new artifacts (PlanOutline, Roadmap, Schedule, etc.).
-Determines when to exit (complete, clarification, escalation, or abort).
-
-
-It’s implemented as a finite state machine — think of it as a table of “if-then” rules.
-
----
-
-🧭 3. Example transition map
-STATE_TRANSITIONS = {
-    "COLLECT_CONTEXT": {
-        "sufficient_context": "DRAFT_OUTLINE",
-        "needs_clarification": "NEEDS_CLARIFICATION"
-    },
-        "success": "VALIDATE_OUTLINE",
-        "low_confidence": "COLLECT_CONTEXT",
-        "fatal_error": "ABORTED"
-    "VALIDATE_OUTLINE": {
-        "valid": "DRAFT_ROADMAP",
-        "invalid_retryable": "DRAFT_OUTLINE",
-    },
-    "VALIDATE_SCHEDULE": {
-        "valid": "SEEK_APPROVAL",
-    },
-    "SEEK_APPROVAL": {
-        "approved": "COMPLETE",
-        "no_response": "NEEDS_CLARIFICATION"
-    }
-}
-So each step calls a tool or agent and returns a result like "valid", "invalid_retryable", "needs_clarification", etc.
-The controller checks this dictionary and jumps to the next appropriate state.
-
----
-
-🔁 4. Inner vs Outer loops
-
-We actually have two nested loops:
-
-Outer loop = Controller state machine
-
-→ Handles stages like “Draft”, “Validate”, “Seek approval”.
-→ Uses the rules above to move forward, retry, or escalate.
-
-Inner loop = ReAct agent
-
-→ Within a given stage (e.g., “Draft Outline”), the agent may use several tools (PatternSelector, NodeGenerator, etc.) to complete its task.
-
-So:
-
-Controller: "We’re in DRAFT_OUTLINE state."
-→ Runs ReAct agent with PatternSelector + NodeGenerator tools.
-→ Agent outputs: success, low confidence, or error.
-→ Controller decides next state based on that result.
+Fallback FSM (for safety/CI):
+- A minimal stage machine can be used when High-Autonomy mode is disabled to reach a safe baseline (Outline → Roadmap → Schedule → Approval) under mocks.
+- Caps (config): TURN_LIMIT=10, RETRY_LIMIT_PER_STAGE=2, WALL_TIME_SEC=45, BUDGET_PER_SESSION_USD=2.0, SOFT_BUDGET_PER_TURN_USD=0.30
 
 
 ---
 
-🛡️ 5. Why this design matters
+🔁 4. Agent-first loop vs fallback
 
-Without a controller, a ReAct agent can wander — it might:
-
-Overthink or loop endlessly,
-
-Forget validation rules,
-
-Produce half-baked artifacts,
-
-Skip critical steps.
-
-
-With the controller: ✅ The flow is deterministic, auditable, and debuggable.
-✅ Failures are handled predictably (retry vs escalate).
-✅ Every stage is logged with reasoning and confidence.
-✅ You can visualize the entire process as a simple flowchart.
-
-
----
-
-🧠 6. In plain English (metaphor)
-
-Imagine your planner AI is like an executive assistant building your plan.
-
-The controller is the project manager who says:
-
-> “Okay, we gathered enough info. Now generate a draft outline. Done? Validate it. All good? Move to roadmap.”
-
-
-
-The tools are the specialists (pattern analyst, grammar checker, scheduler).
-
-The ReAct agent is the coordinator of those specialists.
-
-The controller ensures the whole team moves through the steps in order and on time.
-
-
----
-
-✅ 7. Summary
-
-Role	Responsibility
-
-Controller (state machine)	Decides stage progression, retries, or escalation.
-ReAct agent	Executes atomic tools to complete the current stage.
-Tools	Perform atomic operations (select pattern, validate, build schedule, etc.).
-Router	Handles post-agentic branching (e.g., to world model or scheduling escalation).
-GraphState	Shared memory containing current plan, context, approvals, etc.
-
+- Agent-first loop: The agent thinks/acts autonomously across the whole planning scope, selecting and calling tools as needed. The controller only guards and records.
+- Fallback: The controller may use a shallow FSM to reach a baseline plan when autonomy is disabled or unavailable.
 
 ---
 
@@ -441,23 +309,24 @@ Policy-aware routing:
 
 ---
 
-## 5) LangGraph ReAct agent (inner loop) with atomic tools
+## 5) LangGraph ReAct agent (inner loop) with atomic tools (agent-first)
 
-Use LangGraph `create_react_agent` with SqliteSaver. The controller enforces state transitions and calls the agent; the agent uses tools only.
+Use LangGraph `create_react_agent` with SqliteSaver. The agent receives a registry of StructuredTools with clear docstrings and Pydantic schemas and decides which to call next. The controller does not dictate stage order.
 
 All tools share:
 - Pydantic inputs, JSON outputs: { ok, confidence, explanations[], data }
 - Metadata: prerequisites: list[str], produces: list[str]
 - Idempotent + cacheable within session
 
-Core tools (7):
-1) PatternSelector → { pattern: PatternSpec }
-2) NodeGenerator → PlanOutline (dual-axis metadata; origin="system")
-3) GrammarValidator → { valid, violations[], confidence, suggested_fixes[] }
-4) ContextElicitor → { questions[], confidence } (respects probing_depth; can ask for proposed subtype approval)
-5) DependencyResolver → nodes_with_dependencies (FS/SS/FF/SF + lag/lead)
-6) RoadmapBuilder → { roadmap, options_tried[] }
-7) ScheduleGenerator → Schedule (tz-aware; respects StrategyProfile)
+Core tools (agent-facing):
+1) Clarifier → { question } — ask for missing info (respects InteractionPolicy.probing_depth/conversation_style)
+2) PatternSelector → { pattern: PatternSpec } — may emit proposed subtype + RFC
+3) NodeGenerator → PlanOutline (dual-axis metadata; origin="system")
+4) GrammarValidator → { valid, violations[], confidence, suggested_fixes[] }
+5) RoadmapBuilder → { roadmap, options_tried[] }
+6) ScheduleGenerator → Schedule (tz-aware; respects StrategyProfile)
+7) ApprovalHandler → { decision, cta }
+8) (Later) DependencyResolver, PreferenceProbe, Summarizer, BudgetOracle, MinimalInfoChecklist
 
 Utility tools:
 - PortfolioProbe (conflicts/utilization/suggested shifts)
@@ -468,8 +337,7 @@ Utility tools:
 - PreferenceProbe (style discovery)
 
 Tool dependency management:
-- ToolExecutor verifies prerequisites present and inputs valid before execution; on exception returns ok=False with error and confidence=0.0
-- Controller can topologically check produces/prerequisites to avoid mis-ordering
+- The agent follows tool docstrings and schemas to choose correct order. Controller may enforce hard prerequisites in fallback mode. Tools remain idempotent within a session.
 
 Session caching:
 - Memoize tool outputs by a stable key (hash of inputs + policy + LLM model/version)
@@ -505,7 +373,7 @@ Checkpoints:
 - thread_id=f"user_{user_id}:{goal_id or 'new'}", checkpoint_ns="planning_agent"
 
 Observability:
-- Per-step trace: { stage, tool, duration_ms, confidence, cost_delta, violations, adaptations }
+- Per-turn trace: { tool, duration_ms, confidence, cost_delta, violations, adaptations, agent_output_preview }
 - Append AdaptationLogEntry on structural changes
 - Persist PatternSpec to state and Plan (DB)
 
@@ -570,7 +438,7 @@ E2E:
 
 ---
 
-## 11) Implementation order
+## 11) Implementation order (revised for High-Autonomy)
 
 1) Contracts/state scaffolding: PatternSpec + InteractionPolicy fields (Pydantic, GraphState, MemoryContext)
      - Covers design sections:
@@ -606,13 +474,16 @@ E2E:
          - 2) Controller state machine — SEEK_APPROVAL stage
          - 6) Confidence, retries, escalation — clarification/escalation outcomes
          - 7) Budget, checkpoints, observability — approval traces
-7) planning_node integration with LangGraph ReAct + SqliteSaver
-    - Includes authoring and wiring of Prompts (section 9) for agent and tools
+7) High-Autonomy agent integration with LangGraph + SqliteSaver
+    - 7a: Introduce High-Autonomy mode flag; add Clarifier (done), MinimalInfoChecklist, BudgetOracle tools
+    - 7b: Update agent prompt + safety guards; run create_new_plan end-to-end in High-Autonomy mode (controller as harness)
+    - 7c: Telemetry + human-in-the-loop for PatternSpec RFCs
+    - 7d: Extend to revise_plan/adaptive_replan intents
      - Covers design sections:
-         - 5) LangGraph ReAct agent — create_react_agent + SqliteSaver + registry
-         - 9) Prompts (high level) — authored + wired for agent/tools
-         - 7) Budget, checkpoints, observability — real cost tracking + checkpoints + full traces
-         - 6) Confidence, retries, escalation — composite computation in agent loop
+         - 5) LangGraph ReAct agent — agent-first sequencing + registry
+         - 9) Prompts — authored + wired for agent/tools
+         - 7) Budget, checkpoints, observability — cost tracking + checkpoints + traces
+         - 6) Confidence, retries, escalation — composite computation used for safety
          - 3) PatternSpec (first-class) — DB persistence/write-through
          - 4) InteractionPolicy (user style) — enforced via prompts/policy
          - 8) Contracts & placements — finalized wiring
