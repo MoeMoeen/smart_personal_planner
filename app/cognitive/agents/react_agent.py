@@ -30,7 +30,6 @@ except Exception:  # pragma: no cover
 from pydantic import BaseModel
 
 from app.cognitive.agents.planning_tools import (
-    ClarifierTool,
     PatternSelectorTool,
     GrammarValidatorTool,
     NodeGeneratorTool,
@@ -46,7 +45,6 @@ from app.cognitive.agents.planning_tools import (
     ScheduleGeneratorInput,
     PortfolioProbeInput,
     ApprovalHandlerInput,
-    ClarifierInput,
 )
 from app.config.llm_config import LLM_CONFIG
 # System prompt can be provided by caller; no direct import needed here to avoid circulars
@@ -83,10 +81,6 @@ def get_structured_tools() -> List[Any]:
     Note: Underlying tool logic remains minimal/stubbed for some tools.
     """
     mapping = [
-        (
-            ClarifierTool(),
-            ClarifierInput,
-        ),
         (
             PatternSelectorTool(),
             PatternSelectorInput,

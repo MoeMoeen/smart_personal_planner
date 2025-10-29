@@ -48,32 +48,54 @@ Purpose: Track every interim shortcut introduced during early implementation. Th
     - Current: Tools expose prerequisites/produces; controller doesn’t enforce.
     - Exit criteria: Pre-flight checks validate prerequisites; errors return ToolResult(ok=False, confidence=0.0); tests simulate mis-ordered calls.
 
-### Step 3 — Tool skeletons (updated for High-Autonomy)
+### Step 3 — Tools inventory (revised for High-Autonomy)
 
-- Core tools (status update)
-    - PatternSelectorTool: LLM-backed with structured output and RFC fields (implemented; gated by feature flag).
-    - GrammarValidatorTool: stub; invariants/dual-axis checks + repair suggestions pending (to be upgraded to LLM-backed).
-    - NodeGeneratorTool: LLM-backed PlanOutline generation with structured output (implemented; gated by feature flag).
-    - Exit criteria: All core tools produce valid outputs (mocked LLM tests). GrammarValidator upgraded with rules + auto-repair suggestions.
+- Agent-only skills (no tools)
+    - Clarification and preference probing (follow-ups bounded by InteractionPolicy.probing_depth)
+    - Brainstorming / ideation (policy-driven; quick variants)
+    - Option crafting (2–3 concise, contrastive options; policy/talkativeness modulate counts)
+    - Summarization, reframing, and tone/style adaptation
+    - Conversational approval dialog (collect “approve” or “propose changes” and summarize diffs)
+    - Rationale/next-action selection (hidden chain-of-thought; never exposed)
+    - Why: pure cognition/conversation, no side-effects; avoids LLM-in-LLM hops and keeps dialogue fluid
 
-- Utility tools (updated)
-    - ClarifierTool (new): Ask a single, specific question when inputs are missing; agent calls this autonomously to elicit context (implemented, deterministic; respects style).
-    - BrainstormerTool: deterministic stub; will be upgraded to LLM-backed for ideation heuristics.
-    - OptionCrafterTool: deterministic stub; will be upgraded to LLM-backed for contrastive options.
-    - Summarizer: add minimal stub to shape user-facing summaries per policy.
-    - Exit criteria: Clarifier wired; Brainstormer/OptionCrafter upgraded to LLM; Summarizer stub present and policy-aware.
+- Must-be tools (actions, determinism, or side-effects)
+    - Persistence: PlanRead/PlanWrite/ScheduleWrite, etc.
+    - Deterministic validators: GrammarValidator, ScheduleFeasibility, CapacityChecker
+    - External APIs: calendar sync, lookups, health data, maps
+    - Deterministic graph ops: DependencyResolver
+    - Portfolio math: PortfolioProbe, WorldModelIntegration
+    - Why: side-effects, auditability, retries, security, cost isolation, and performance guarantees
+
+- LLM-specialist tools (structured artifacts with strict JSON)
+    - PatternSelector → PatternSpec (+confidence, optional RFC)
+    - NodeGenerator → PlanOutline (Pydantic)
+    - RoadmapBuilder → Roadmap (Pydantic)
+    - ScheduleGenerator → Schedule (Pydantic, deterministic kernel + optional LLM micro-polish)
+    - Why: schema guarantees, prompt isolation, observability, caching, reusability
+
+- Status update (where we are)
+    - PatternSelectorTool: LLM-backed with structured output (implemented; flagged)
+    - NodeGeneratorTool: LLM-backed with structured output (implemented; flagged)
+    - GrammarValidatorTool: LLM-backed rule checks with repair suggestions (to implement)
+    - RoadmapBuilder/ScheduleGenerator: deterministic kernels (implemented) with optional LLM micro-polish
+    - Clarifier/Brainstormer/OptionCrafter/Summarizer/Approval dialog: now agent-native (no tools)
+    - Exit criteria: All core tools pass integration tests (no mocks); GrammarValidator upgraded; persistence deferred until needed
+
+-- Removed as tools (now agent-native behaviors)
+    - Clarifier, Brainstormer, OptionCrafter, Summarizer, PreferenceProbe, conversational Approval dialog
+    - Rationale: avoid LLM-in-LLM; keep conversation fast; still governed by InteractionPolicy
 
 - Registry/helper
-    - Structured tool registry provided to `create_react_agent` (current mapping includes Clarifier, PatternSelector, GrammarValidator, NodeGenerator, RoadmapBuilder, ScheduleGenerator, PortfolioProbe, ApprovalHandler).
-    - Note: Production registry and dependency graph remain a later enhancement.
+    - Structured tool registry (agent-facing) includes: PatternSelector, GrammarValidator, NodeGenerator, RoadmapBuilder, ScheduleGenerator, DependencyResolver, PortfolioProbe.
+    - External API and persistence tools (PlanRead/PlanWrite/ScheduleWrite, WorldModelIntegration) are deferred until needed.
+    - Conversational tools are not registered. Production registry and dependency graph remain a later enhancement.
 
 - Additional tools (outside Steps 1–5)
-    - DependencyResolver, PreferenceProbe.
-    - Note: These belong to later steps (Step 7); tracked separately.
+    - DependencyResolver, WorldModelIntegration, Persistence (CRUD) tools when required
+    - Note: Preference probing is agent-native now; tracked via prompts/policy and agent behavior tests
 
-- Step 3 stubs not yet implemented
-    - Summarizer (stub).
-    - Exit criteria: Minimal stub added with Pydantic I/O; covered by unit tests.
+ 
 
 - Session caching minimal and in-memory only
     - Current: ToolExecutor caches by params hash; no persistence.
@@ -96,6 +118,7 @@ Purpose: Track every interim shortcut introduced during early implementation. Th
 - Prerequisites/produces
     - Current: Metadata present; agent decides sequencing. Controller may still pre-flight critical dependencies in fallback path.
     - Exit criteria: Safety checks for obvious mis-ordering (fallback); agent tool docs guide correct usage.
+    - Note: For agent-native behaviors there are no tool prereqs; outputs flow back into agent scratch space until emitted via structured tools/persistence.
 
 - RFC flow and approvals not wired
     - Current: No ApprovalHandler; pattern_rfc_required/text never set; selected_pattern not propagated into PlanContext/Outline/Roadmap mirrors.
@@ -149,12 +172,12 @@ Purpose: Track every interim shortcut introduced during early implementation. Th
 ### Step 7 — High-Autonomy ReAct agent + prompts + checkpoints
 
 - Agent integration (agent-first)
-    - Current: `react_agent.py` creates a ReAct agent with the full tool registry (including Clarifier). Controller delegates entire planning flow when enabled. SqliteSaver is configured; `thread_id` set for continuity.
+    - Current: `react_agent.py` creates a ReAct agent with a lean, action-focused registry (no conversational tools). Controller delegates entire planning flow when enabled. SqliteSaver is configured; `thread_id` set for continuity.
     - Exit criteria: High-Autonomy path is primary; controller does not orchestrate stages. Agent owns tool selection/order.
 
 - Prompts
-    - Current: System prompt guides tool-only reasoning; more policy- and grammar-rich prompts needed.
-    - Exit criteria: Author agent/tool prompts emphasizing autonomy + safety: use Clarifier early, validate before finalize, respect InteractionPolicy.
+    - Current: System prompt guides tool-only reasoning; needs explicit guidance that brainstorming/clarification/options/summarization/approval dialog are agent-native behaviors governed by InteractionPolicy.
+    - Exit criteria: Author agent/tool prompts emphasizing autonomy + safety: ask clarifying questions directly (no tool), validate before finalize, respect InteractionPolicy.
 
 - Cost/confidence
     - Current: Not yet implemented within agent loop.
@@ -166,11 +189,11 @@ Purpose: Track every interim shortcut introduced during early implementation. Th
 
 #### Example (High-Autonomy) — “Flu recovery” (summary)
 1) Agent calls PatternSelector → recurring_cycle/protocol_routine.
-2) Agent calls Clarifier to elicit missing context (kitchen access, meds, preferences).
+2) Agent asks the user directly (no tool) to elicit missing context (kitchen access, meds, preferences).
 3) Agent calls NodeGenerator → PlanOutline; then GrammarValidator → valid.
 4) Agent calls RoadmapBuilder → daily cadence, options_tried.
 5) Agent calls ScheduleGenerator → morning/evening blocks.
-6) Agent calls ApprovalHandler per policy → approve or propose changes.
+6) Agent runs an approval dialog conversationally (no tool) → if approved, uses Persistence tools to write Plan/Schedule.
 Controller: validates schemas, budgets, checkpoints, persists, traces; no stage orchestration.
 
 
@@ -187,23 +210,25 @@ Note: The Step column refers to the Implementation order items 1–8 at the end 
 | 3 | Tools — Core | PatternSelector (LLM + RFC fields emission) | [ ] Open |
 | 3 | Tools — Core | GrammarValidator (rules + fixes) | [ ] Open |
 | 3 | Tools — Core | NodeGenerator (outline + dual-axis) | [ ] Open |
-| 3 | Tools — Utility | Brainstormer (LLM-backed) | [ ] Open |
-| 3 | Tools — Utility | OptionCrafter (LLM-backed) | [ ] Open |
-| 3 | Tools — Utility | Summarizer (stub) | [ ] Open |
-| 3 | Tools — Utility | ApprovalHandler (stub) | [ ] Open |
+| 3 | Tools — Core | Persistence tools (PlanRead/PlanWrite/ScheduleWrite) | [ ] Open |
+| 3 | Tools — Core | ScheduleFeasibility/CapacityChecker validators | [ ] Open |
+| 3 | Agent policy behaviors | Brainstormer (agent-native; policy-aware prompts/tests) | [ ] Open |
+| 3 | Agent policy behaviors | OptionCrafter (agent-native; policy-aware prompts/tests) | [ ] Open |
+| 3 | Agent policy behaviors | Summarizer (agent-native; prompt harness/tests) | [ ] Open |
+| 3 | Agent policy behaviors | Approval dialog (agent-native; CTA patterns/tests) | [ ] Open |
 | 4 | Controller | Implement remaining stages + happy path COMPLETE | [ ] Open |
 | 4 | Controller | Enforce prerequisites/produces checks | [ ] Open |
 | 4 | Observability | Trace: durations, cost deltas, violations, adaptations | [ ] Open |
 | 5 | Tools — Core | RoadmapBuilder (variants + options_tried + constraints) | [ ] Open |
 | 5 | Tools — Core | ScheduleGenerator (calendar/constraints-aware) | [ ] Open |
-| 5 | Tools — Utility | PortfolioProbe (real conflicts + capacity) | [ ] Open |
+| 5 | Tools — Core | PortfolioProbe (real conflicts + capacity) | [ ] Open |
 | 5 | Controller | Roadmap/Schedule validations beyond presence | [ ] Open |
 | 5 | Observability | Trace: duration/cost/confidence for Step 5 stages | [ ] Open |
-| 6 | Tools — Utility | ApprovalHandler (async path, CTA templates) | [ ] Open |
+| 6 | Agent policy behaviors | Approval dialog cadence (milestone/single_final/strict) | [ ] Open |
 | 6 | Controller | SEEK_APPROVAL integration (resume flow post-approval) | [ ] Open |
 | 6 | RFC Policy | Enforce REQUIRE_RFC_FOR_NEW_SUBTYPE and set GraphState flags | [ ] Open |
-| 7 | Agent | create_react_agent wired + SqliteSaver checkpoints | [ ] Open |
-| 7 | Prompts | Author and wire prompts (agent + tools) | [ ] Open |
+| 7 | Agent | create_react_agent wired + SqliteSaver checkpoints (agent-first registry) | [ ] Open |
+| 7 | Prompts | Author and wire prompts (agent-native convo + tools) | [ ] Open |
 | 7 | Budget/Confidence | Real cost tracking + composite C in agent loop | [ ] Open |
 | 7 | Registry/Caching | Production registry + persistent cache keys | [ ] Open |
 
@@ -313,20 +338,22 @@ Policy-aware routing:
 
 Use LangGraph `create_react_agent` with SqliteSaver. The agent receives a registry of StructuredTools with clear docstrings and Pydantic schemas and decides which to call next. The controller does not dictate stage order.
 
-All tools share:
-- Pydantic inputs, JSON outputs: { ok, confidence, explanations[], data }
-- Metadata: prerequisites: list[str], produces: list[str]
-- Idempotent + cacheable within session
+Tool contracts:
+- Inputs and outputs are strongly typed Pydantic models (no generic envelopes).
+- Errors surface via structured exceptions; controller records trace with confidence/cost separately.
+- Tools may declare metadata (deterministic vs LLM, side-effects, isolation requirements) and are cacheable within a session.
 
-Core tools (agent-facing):
-1) Clarifier → { question } — ask for missing info (respects InteractionPolicy.probing_depth/conversation_style)
-2) PatternSelector → { pattern: PatternSpec } — may emit proposed subtype + RFC
-3) NodeGenerator → PlanOutline (dual-axis metadata; origin="system")
-4) GrammarValidator → { valid, violations[], confidence, suggested_fixes[] }
-5) RoadmapBuilder → { roadmap, options_tried[] }
-6) ScheduleGenerator → Schedule (tz-aware; respects StrategyProfile)
-7) ApprovalHandler → { decision, cta }
-8) (Later) DependencyResolver, PreferenceProbe, Summarizer, BudgetOracle, MinimalInfoChecklist
+Agent-native behaviors (no tools): clarification, brainstorming/ideation, option crafting, summarization/tone, conversational approval dialog
+
+Action/structure tools:
+1) PatternSelector → { pattern: PatternSpec } — may emit proposed subtype + RFC
+2) NodeGenerator → PlanOutline (dual-axis metadata; origin="system")
+3) GrammarValidator → { valid, violations[], confidence, suggested_fixes[] }
+4) RoadmapBuilder → { roadmap, options_tried[] }
+5) ScheduleGenerator → Schedule (tz-aware; respects StrategyProfile)
+6) DependencyResolver → graph ops
+7) PortfolioProbe/WorldModelIntegration → feasibility/capacity/external checks
+8) Persistence → PlanRead/PlanWrite/ScheduleWrite
 
 Utility tools:
 - PortfolioProbe (conflicts/utilization/suggested shifts)
@@ -418,23 +445,22 @@ Router:
 
 ---
 
-## 10) Testing
+## 10) Testing (no mocks)
 
-Unit (mocked LLM):
-- PatternSelector emits valid PatternSpec (including proposed subtype + RFC)
-- Planning node propagates selected_pattern into PlanContext/Outline/Roadmap mirrors
-- GrammarValidator catches L1 issues, cycles, unreachable tasks, pattern mismatches
-- Policy gating: probing_depth caps questions; approval_policy changes cadence; conversation_style/talkativeness modulates variants and summarization
+Deterministic unit tests:
+- GrammarValidator rule checks and repair suggestions (deterministic components)
+- DependencyResolver, conflict detection, capacity/utilization math
+- RoadmapBuilder/ScheduleGenerator deterministic kernels
 
-Integration (real GPT‑4, gated):
-- recurring_cycle with subtype=protocol_routine → valid Schedule
-- milestone_project with overlapping phases; options_tried recorded
-- RFC path: subtype="proposed:daily_health_protocol_v2" → needs_clarification + pattern_rfc_required=True; ApprovalHandler resumes → completes
-- Style variations: concise/high autonomy vs conversational/brainstorming
+Integration (real LLM, gated by OPENAI_API_KEY):
+- PatternSelector emits a valid PatternSpec (including proposed subtype + RFC)
+- NodeGenerator returns a valid PlanOutline (Pydantic)
+- Agent-native behaviors (clarify/brainstorm/options/summarize/approval) validated via conversation transcripts
+- End-to-end path produces a Schedule that passes feasibility checks
 
-E2E:
+E2E (when external integrations are introduced):
 - planning_node → router → world_model_integration_node → persistence_node
-- DB persists Plan.pattern_*; ScheduledTask FKs intact
+- Persistence tests added only when persistence is implemented
 
 ---
 
@@ -475,9 +501,9 @@ E2E:
          - 6) Confidence, retries, escalation — clarification/escalation outcomes
          - 7) Budget, checkpoints, observability — approval traces
 7) High-Autonomy agent integration with LangGraph + SqliteSaver
-    - 7a: Introduce High-Autonomy mode flag; add Clarifier (done), MinimalInfoChecklist, BudgetOracle tools
-    - 7b: Update agent prompt + safety guards; run create_new_plan end-to-end in High-Autonomy mode (controller as harness)
-    - 7c: Telemetry + human-in-the-loop for PatternSpec RFCs
+    - 7a: Introduce High-Autonomy mode flag; update registry to action/structure tools only; remove conversational tools
+    - 7b: Update agent prompt (agent-native clarify/brainstorm/options/summarize/approval); run end-to-end in High-Autonomy mode (controller as harness)
+    - 7c: Telemetry + human-in-the-loop for PatternSpec RFCs; composite confidence + budget caps
     - 7d: Extend to revise_plan/adaptive_replan intents
      - Covers design sections:
          - 5) LangGraph ReAct agent — agent-first sequencing + registry
@@ -487,7 +513,7 @@ E2E:
          - 3) PatternSpec (first-class) — DB persistence/write-through
          - 4) InteractionPolicy (user style) — enforced via prompts/policy
          - 8) Contracts & placements — finalized wiring
-8) Tests: unit → integration (mocked) → integration (real GPT‑4) → E2E
+8) Tests: deterministic unit → integration (real LLM, gated) → E2E (when integrations exist)
      - Covers design sections:
          - 10) Testing — unit/integration/E2E across artifacts and flows
          - Cross-cuts prior sections for verification of behavior and invariants

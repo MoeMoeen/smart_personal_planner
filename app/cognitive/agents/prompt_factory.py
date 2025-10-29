@@ -43,3 +43,18 @@ def node_generator_system_prompt() -> str:
         "Include exactly one level=1 root goal with parent_id=null; root_id must equal that node's id. "
         "1–3 child nodes under the root are sufficient. Use structured output (no prose)."
     )
+
+
+def grammar_validator_system_prompt() -> str:
+    node_types = _csv(list(get_args(NodeType)))
+    statuses = _csv(list(get_args(NodeStatus)))
+    return (
+        "You are a Plan Grammar Validator and Repairer. "
+        "Given a PlanOutline JSON, validate these rules and, if invalid, return a corrected PlanOutline: "
+        "1) root_id must exist in nodes. "
+        "2) Root node must have parent_id=null, level=1, node_type=goal. "
+        "3) All node ids are unique. "
+        "4) Non-root nodes must have a valid parent_id and level>=2. "
+        "5) Use allowed node_type values: [" + node_types + "] and statuses: [" + statuses + "]. "
+        "If valid, return the same outline. Use structured output (PlanOutline). No prose."
+    )

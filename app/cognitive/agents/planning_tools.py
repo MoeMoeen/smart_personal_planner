@@ -36,6 +36,7 @@ except Exception:  # pragma: no cover
 from app.cognitive.agents.prompt_factory import (
     pattern_selector_system_prompt,
     node_generator_system_prompt,
+    grammar_validator_system_prompt,
 )
 import json
 
@@ -188,20 +189,124 @@ class GrammarValidatorInput(BaseModel):
     outline: Dict[str, Any]  # Expect PlanOutline.model_dump()
 
 
+class GrammarValidationReport(BaseModel):
+    valid: bool
+    violations: List[str] = Field(default_factory=list)
+    repaired_outline: Optional[Dict[str, Any]] = None
+    repair_notes: List[str] = Field(default_factory=list)
+
+
 class GrammarValidatorTool:
     name = "grammar_validator"
-    description = "Validate plan outline grammar invariants and dual-axis rules"
+    description = "Validate plan outline grammar invariants and (optionally) repair via LLM"
     prerequisites: List[str] = ["outline"]
     produces: List[str] = ["validation_report"]
 
+    def _deterministic_checks(self, outline_dict: Dict[str, Any]) -> List[str]:
+        violations: List[str] = []
+        try:
+            outline = PlanOutline.model_validate(outline_dict)
+        except Exception as e:
+            return [f"schema_invalid: {e}"]
+
+        nodes = outline.nodes
+        ids = [n.id for n in nodes]
+        if len(set(ids)) != len(ids):
+            violations.append("duplicate_node_ids")
+
+        if not outline.root_id:
+            violations.append("missing_root_id")
+        else:
+            root_nodes = [n for n in nodes if n.id == outline.root_id]
+            if not root_nodes:
+                violations.append("root_id_not_found_in_nodes")
+            else:
+                root = root_nodes[0]
+                if root.parent_id is not None:
+                    violations.append("root_parent_must_be_null")
+                if getattr(root, "level", None) != 1:
+                    violations.append("root_level_must_be_1")
+                if getattr(root, "node_type", None) != "goal":
+                    violations.append("root_type_must_be_goal")
+
+        # Ensure non-root nodes have a parent and level >= 2
+        id_set = set(ids)
+        for n in nodes:
+            if n.id == outline.root_id:
+                continue
+            if n.parent_id is None:
+                violations.append(f"node_missing_parent:{n.id}")
+            elif n.parent_id not in id_set:
+                violations.append(f"parent_not_found:{n.id}->{n.parent_id}")
+            if getattr(n, "level", 0) is not None and getattr(n, "level", 0) < 2:
+                violations.append(f"level_too_low:{n.id}")
+
+        return violations
+
+    def _attempt_llm_repair(self, outline_dict: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], List[str]]:
+        if not get_flag("PLANNING_USE_LLM_TOOLS", False):
+            return None, ["llm_tools_disabled"]
+        if not os.getenv("OPENAI_API_KEY"):
+            return None, ["missing_openai_api_key"]
+        model = _get_chat_model()
+        if model is None:
+            return None, ["llm_unavailable"]
+
+        sys_prompt = grammar_validator_system_prompt()
+        # Prefer structured output to a PlanOutline
+        structured = None
+        try:
+            structured = model.with_structured_output(PlanOutline)  # type: ignore[attr-defined]
+        except Exception:
+            structured = None
+        user_payload = json.dumps({"outline": outline_dict}, ensure_ascii=False)
+        if structured is not None:
+            try:
+                result = structured.invoke([
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_payload},
+                ])
+                outline = result if isinstance(result, PlanOutline) else PlanOutline.model_validate(result)
+                return outline.model_dump(), ["repaired_via_llm_structured_output"]
+            except Exception:
+                pass
+
+        # Fallback: ask for pure JSON object
+        msgs = [
+            ("system", sys_prompt + " Respond with a single JSON object only."),
+            ("user", user_payload),
+        ]
+        try:
+            resp = model.invoke([{"role": r, "content": c} for r, c in msgs])
+            content = getattr(resp, "content", "") or ""
+            content = _strip_code_fences(content)
+            payload = json.loads(content)
+            outline = PlanOutline.model_validate(payload)
+            return outline.model_dump(), ["repaired_via_llm_json_mode"]
+        except Exception as e:
+            return None, [f"llm_repair_failed:{e}"]
+
     def run(self, params: GrammarValidatorInput) -> ToolResult:
-        # Skeleton: not-OK placeholder; real rules come later
-        return ToolResult(
-            ok=False,
-            confidence=0.0,
-            explanations=["GrammarValidatorTool is a stub; implement rules in Phase 7b."],
-            data={"valid": False, "violations": []},
-        )
+        outline_dict = params.outline or {}
+        violations = self._deterministic_checks(outline_dict)
+        if not violations:
+            report = GrammarValidationReport(valid=True, violations=[])
+            return ToolResult(ok=True, confidence=0.85, explanations=["outline_valid"], data=report.model_dump())
+
+        # Try to repair with LLM; if repaired outline passes checks, return valid with repaired_outline
+        repaired, notes = self._attempt_llm_repair(outline_dict)
+        explanations = ["outline_invalid"] + notes
+        if repaired is not None:
+            post = self._deterministic_checks(repaired)
+            if not post:
+                report = GrammarValidationReport(valid=True, violations=[], repaired_outline=repaired, repair_notes=notes)
+                return ToolResult(ok=True, confidence=0.7, explanations=explanations + ["repaired_ok"], data=report.model_dump())
+            else:
+                explanations.append("repair_still_invalid")
+                violations.extend(post)
+
+        report = GrammarValidationReport(valid=False, violations=violations, repair_notes=notes)
+        return ToolResult(ok=False, confidence=0.0, explanations=explanations, data=report.model_dump())
 
 
 class NodeGeneratorInput(BaseModel):
@@ -475,15 +580,13 @@ def get_planning_tool_skeletons():
     Note: These are skeletons and will not perform real planning.
     """
     return [
-        ClarifierTool(),
         PatternSelectorTool(),
         GrammarValidatorTool(),
         NodeGeneratorTool(),
-        BrainstormerTool(),
-        OptionCrafterTool(),
         RoadmapBuilderTool(),
         ScheduleGeneratorTool(),
         PortfolioProbeTool(),
+        ApprovalHandlerTool(),
     ]
 
 
