@@ -30,6 +30,7 @@ except Exception:  # pragma: no cover
 from pydantic import BaseModel
 
 from app.cognitive.agents.planning_tools import (
+    ClarifierTool,
     PatternSelectorTool,
     GrammarValidatorTool,
     NodeGeneratorTool,
@@ -37,6 +38,7 @@ from app.cognitive.agents.planning_tools import (
     ScheduleGeneratorTool,
     PortfolioProbeTool,
     ApprovalHandlerTool,
+    # Input schemas
     PatternSelectorInput,
     GrammarValidatorInput,
     NodeGeneratorInput,
@@ -44,8 +46,10 @@ from app.cognitive.agents.planning_tools import (
     ScheduleGeneratorInput,
     PortfolioProbeInput,
     ApprovalHandlerInput,
+    ClarifierInput,
 )
 from app.config.llm_config import LLM_CONFIG
+# System prompt can be provided by caller; no direct import needed here to avoid circulars
 
 
 def _make_structured_tool(
@@ -80,6 +84,10 @@ def get_structured_tools() -> List[Any]:
     """
     mapping = [
         (
+            ClarifierTool(),
+            ClarifierInput,
+        ),
+        (
             PatternSelectorTool(),
             PatternSelectorInput,
         ),
@@ -109,7 +117,8 @@ def get_structured_tools() -> List[Any]:
         ),
     ]
     tools: List[Any] = []
-    for tool, input_model in mapping:
+    for entry in mapping:
+        tool, input_model = entry
         st = _make_structured_tool(
             tool_name=getattr(tool, "name", tool.__class__.__name__),
             description=getattr(tool, "description", "tool"),
@@ -151,7 +160,7 @@ def get_checkpointer(db_path: str = "data/agent_conversations.db"):
     return SqliteSaver(db_path)  # type: ignore
 
 
-def create_planning_react_agent(db_path: str = "data/agent_conversations.db"):
+def create_planning_react_agent(db_path: str = "data/agent_conversations.db", system_prompt: str | None = None):
     """Create a ReAct agent with our structured tools and sqlite checkpoints.
 
     Returns a tuple (graph, config) where graph is a Runnable-like agent and
@@ -166,10 +175,14 @@ def create_planning_react_agent(db_path: str = "data/agent_conversations.db"):
         return None, {}
     checkpointer = get_checkpointer(db_path)
     cra = cast(Any, create_react_agent)
+    kwargs = {"checkpointer": checkpointer}
+    # Some versions of create_react_agent accept state_modifier for system prompt
+    if system_prompt:
+        kwargs["state_modifier"] = system_prompt
     graph = cra(
         llm_factory(),
         tools=tools,
-        checkpointer=checkpointer,
+        **kwargs,
     )
     config = {
         "checkpointer": checkpointer,

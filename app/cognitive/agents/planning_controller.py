@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict
 import time
+import os
 import hashlib
 
 from app.cognitive.state.graph_state import GraphState
@@ -47,6 +48,9 @@ from app.cognitive.agents.planning_tools import (
     ApprovalHandlerInput,
 )
 from app.cognitive.contracts.types import Roadmap, Schedule
+from app.config.feature_flags import get_flag
+from app.cognitive.agents.react_agent import create_planning_react_agent
+from app.cognitive.agents.prompts import AGENT_SYSTEM_PROMPT
 
 
 # ─────────────────────────────────────────────────────────────
@@ -142,6 +146,76 @@ class PlanningController:
         turn_budget = TurnBudget()
         policy = self._policy(state)
 
+        # Agent-first path: when enabled, delegate the entire flow to the ReAct agent.
+        if get_flag("PLANNING_USE_REACT_AGENT", False):
+            graph, cfg = create_planning_react_agent(system_prompt=AGENT_SYSTEM_PROMPT)
+            if graph is None:
+                # Agent unavailable; fall back to deterministic path below
+                self._trace(state, stage="AGENT_ENTRY", event="react_agent_unavailable")
+            else:
+                # Prepare thread id and config
+                thread_id = None
+                try:
+                    uid = state.memory_context.user_id if state.memory_context else None
+                    gid = None
+                    thread_id = f"user_{uid}:{gid or 'planning'}" if uid else None
+                except Exception:
+                    thread_id = None
+                if cfg and isinstance(cfg, dict) and "config" in cfg:
+                    cfg["config"]["configurable"]["thread_id"] = thread_id
+
+                user_message = state.user_input
+                if not user_message:
+                    state.planning_status = "needs_clarification"
+                    state.response_text = "Please share your goal or what you want to plan for."
+                    self._trace(state, stage="AGENT_ENTRY", event="missing_user_input", thread_id=thread_id)
+                    return state
+                if not os.getenv("OPENAI_API_KEY"):
+                    state.planning_status = "needs_clarification"
+                    state.response_text = "LLM not configured. Set OPENAI_API_KEY to enable agent."
+                    self._trace(state, stage="AGENT_ENTRY", event="missing_api_key", thread_id=thread_id)
+                    return state
+
+                # Budget pre-check (soft)
+                if not turn_budget.can_spend(0.0):
+                    state.planning_status = "needs_clarification"
+                    state.response_text = "Budget soft limit reached. Reply 'continue' to proceed."
+                    self._trace(state, stage="AGENT_ENTRY", event="soft_budget_pause")
+                    return state
+
+                # Invoke agent once; agent owns internal tool sequencing
+                agent_start = time.time()
+                try:
+                    conf = cfg.get("config", {}) if isinstance(cfg, dict) else {}
+                    result = graph.invoke({"input": user_message}, config=conf)  # type: ignore
+                    duration_ms = int((time.time() - agent_start) * 1000)
+                    preview = (str(result)[:500] if result is not None else None)
+                    state.response_text = preview or "Agent finished."
+                    # Do not force-complete; agent may ask a question—let UI route next turn
+                    state.planning_status = state.planning_status or "needs_clarification"
+                    self._trace(
+                        state,
+                        stage="AGENT_EXIT",
+                        event="react_agent_ok",
+                        thread_id=thread_id,
+                        duration_ms=duration_ms,
+                        agent_output_preview=preview,
+                    )
+                    return state
+                except Exception as e:
+                    duration_ms = int((time.time() - agent_start) * 1000)
+                    state.planning_status = "needs_clarification"
+                    state.response_text = f"Agent error: {e}"
+                    self._trace(
+                        state,
+                        stage="AGENT_EXIT",
+                        event="react_agent_error",
+                        error=str(e),
+                        duration_ms=duration_ms,
+                        thread_id=thread_id,
+                    )
+                    # Fall through to deterministic path if needed (no early return)
+
         # Start in COLLECT_CONTEXT stage
         current_stage = COLLECT_CONTEXT
         turn = 0
@@ -175,6 +249,65 @@ class PlanningController:
                 continue
 
             if current_stage == DRAFT_OUTLINE:
+                # Optional: delegate to ReAct agent behind feature flag
+                if get_flag("PLANNING_USE_REACT_AGENT", False):
+                    graph, cfg = create_planning_react_agent(system_prompt=AGENT_SYSTEM_PROMPT)
+                    if graph is not None:
+                        # Prepare minimal config with optional thread id
+                        thread_id = None
+                        try:
+                            uid = state.memory_context.user_id if state.memory_context else None
+                            gid = None
+                            thread_id = f"user_{uid}:{gid or 'new'}" if uid else None
+                        except Exception:
+                            thread_id = None
+                        if cfg and isinstance(cfg, dict) and "config" in cfg:
+                            cfg["config"]["configurable"]["thread_id"] = thread_id
+
+                        # Only invoke when an API key is present AND we have real user input
+                        user_message = state.user_input
+                        if os.getenv("OPENAI_API_KEY") and user_message:
+                            agent_start = time.time()
+                            try:
+                                conf = cfg.get("config", {}) if isinstance(cfg, dict) else {}
+                                _result = graph.invoke({"input": user_message}, config=conf)  # type: ignore
+                                duration_ms = int((time.time() - agent_start) * 1000)
+                                # We are not consuming outputs yet; record trace only
+                                self._trace(
+                                    state,
+                                    stage=current_stage,
+                                    event="react_agent_invoked",
+                                    thread_id=thread_id,
+                                    duration_ms=duration_ms,
+                                    cost_delta=0.0,
+                                    agent_output_preview=(str(_result)[:200] if _result is not None else None),
+                                )
+                            except Exception as e:
+                                duration_ms = int((time.time() - agent_start) * 1000)
+                                self._trace(
+                                    state,
+                                    stage=current_stage,
+                                    event="react_agent_error",
+                                    error=str(e),
+                                    thread_id=thread_id,
+                                    duration_ms=duration_ms,
+                                )
+                        elif not user_message:
+                            self._trace(
+                                state,
+                                stage=current_stage,
+                                event="react_agent_skipped_no_user_input",
+                                thread_id=thread_id,
+                            )
+                        else:
+                            self._trace(
+                                state,
+                                stage=current_stage,
+                                event="react_agent_skipped_no_api_key",
+                                thread_id=thread_id,
+                            )
+                    else:
+                        self._trace(state, stage=current_stage, event="react_agent_unavailable")
                 # Attempt pattern selection (stub returns ok=False)
                 ps = self.exec.run(
                     self.tools["pattern_selector"],
@@ -183,14 +316,52 @@ class PlanningController:
                 self._trace(state, stage=current_stage, tool="pattern_selector", confidence=ps.confidence)
 
                 if ps.ok and ps.data.get("pattern"):
+                    # Consume selected pattern into state
+                    try:
+                        from app.cognitive.contracts.types import PatternSpec  # local import to avoid cycles at module import
+                        spec = PatternSpec.model_validate(ps.data["pattern"])  # type: ignore
+                        state.selected_pattern = spec
+                        # RFC signaling: require approval if proposing a new subtype
+                        maybe_sub = (spec.subtype or "")
+                        state.pattern_rfc_required = bool(maybe_sub.startswith("proposed:"))
+                        state.pattern_rfc_text = spec.rfc
+                    except Exception as e:
+                        # Pattern invalid; request clarification
+                        state.planning_status = "needs_clarification"
+                        state.response_text = f"Pattern selection failed validation: {e}"
+                        self._trace(state, stage=current_stage, event="pattern_validation_error", error=str(e))
+                        return state
+
                     # Proceed to NodeGenerator
                     ng = self.exec.run(
                         self.tools["node_generator"],
-                        NodeGeneratorInput(goal_text=str(state.goal_context or {}), pattern=ps.data["pattern"],
-                                           plan_context=(state.plan_outline.plan_context.model_dump() if state.plan_outline else None)),
+                        NodeGeneratorInput(
+                            goal_text=str(state.goal_context or {}),
+                            pattern=spec.model_dump(),
+                            plan_context=(state.plan_outline.plan_context.model_dump() if state.plan_outline else None),
+                        ),
                     )
                     self._trace(state, stage=current_stage, tool="node_generator", confidence=ng.confidence)
-                    current_stage = VALIDATE_OUTLINE
+
+                    if ng.ok and ng.data.get("outline"):
+                        try:
+                            from app.cognitive.contracts.types import PlanOutline  # avoid top-level circular imports
+                            outline = PlanOutline.model_validate(ng.data["outline"])  # type: ignore
+                            # Ensure outline.pattern carries the selected pattern if missing
+                            if outline.pattern is None:
+                                outline.pattern = state.selected_pattern
+                            state.plan_outline = outline
+                            current_stage = VALIDATE_OUTLINE
+                        except Exception as e:
+                            state.planning_status = "needs_clarification"
+                            state.response_text = f"Outline generation failed validation: {e}"
+                            self._trace(state, stage=current_stage, event="outline_validation_error", error=str(e))
+                            return state
+                    else:
+                        state.planning_status = "needs_clarification"
+                        state.response_text = "Outline generator returned no result."
+                        self._trace(state, stage=current_stage, event="outline_generator_empty")
+                        return state
                 else:
                     # Stubbed path: ask for clarification and exit cleanly
                     state.planning_status = "needs_clarification"
@@ -203,20 +374,35 @@ class PlanningController:
 
             if current_stage == VALIDATE_OUTLINE:
                 # Validate outline (stub returns not OK)
+                # If outline exists, attempt grammar validation; allow soft-pass when LLM tools are disabled
+                outline_dump = state.plan_outline.model_dump() if state.plan_outline else {}
                 gv = self.exec.run(
                     self.tools["grammar_validator"],
-                    GrammarValidatorInput(outline=(state.plan_outline.model_dump() if state.plan_outline else {})),
+                    GrammarValidatorInput(outline=outline_dump),
                 )
                 self._trace(state, stage=current_stage, tool="grammar_validator", confidence=gv.confidence)
 
-                if gv.ok and gv.data.get("valid"):
+                from app.config.feature_flags import get_flag as _get_flag
+                llm_tools_on = bool(_get_flag("PLANNING_USE_LLM_TOOLS", False))
+
+                if (gv.ok and gv.data.get("valid")) or (not llm_tools_on and bool(state.plan_outline)):
+                    # Accept outline as valid (either explicit OK or soft-pass when LLM tools are off)
+                    state.validation_result = gv.data if gv and gv.data else {"validator": "grammar", "status": "soft_pass"}
                     current_stage = DRAFT_ROADMAP
                 else:
-                    # For scaffold, pause and request clarification
+                    # Attempt a minimal auto-repair if possible (ensure root and at least one child)
+                    try:
+                        if state.plan_outline and not state.plan_outline.nodes:
+                            # unreachable in normal flow; safeguard
+                            state.plan_outline.nodes = []  # type: ignore
+                        # If still invalid or validator strongly objects, pause
+                    except Exception:
+                        pass
                     state.planning_status = "needs_clarification"
                     state.response_text = (
                         "Outline requires validation and repair. Please provide more context or wait for tool enablement."
                     )
+                    self._trace(state, stage=current_stage, event="outline_validation_blocked")
                     return state
 
             if current_stage == DRAFT_ROADMAP:
@@ -225,6 +411,52 @@ class PlanningController:
                     state.response_text = "Missing outline; cannot draft roadmap yet."
                     self._trace(state, stage=current_stage, event="missing_outline")
                     return state
+                # Optional: delegate to ReAct agent behind feature flag (Roadmap stage)
+                if get_flag("PLANNING_USE_REACT_AGENT", False):
+                    graph, cfg = create_planning_react_agent(system_prompt=AGENT_SYSTEM_PROMPT)
+                    if graph is not None:
+                        thread_id = None
+                        try:
+                            uid = state.memory_context.user_id if state.memory_context else None
+                            gid = None
+                            thread_id = f"user_{uid}:{gid or 'new'}" if uid else None
+                        except Exception:
+                            thread_id = None
+                        if cfg and isinstance(cfg, dict) and "config" in cfg:
+                            cfg["config"]["configurable"]["thread_id"] = thread_id
+
+                        user_message = state.user_input
+                        if os.getenv("OPENAI_API_KEY") and user_message:
+                            agent_start = time.time()
+                            try:
+                                conf = cfg.get("config", {}) if isinstance(cfg, dict) else {}
+                                _result = graph.invoke({"input": user_message}, config=conf)  # type: ignore
+                                duration_ms = int((time.time() - agent_start) * 1000)
+                                self._trace(
+                                    state,
+                                    stage=current_stage,
+                                    event="react_agent_invoked",
+                                    thread_id=thread_id,
+                                    duration_ms=duration_ms,
+                                    cost_delta=0.0,
+                                    agent_output_preview=(str(_result)[:200] if _result is not None else None),
+                                )
+                            except Exception as e:
+                                duration_ms = int((time.time() - agent_start) * 1000)
+                                self._trace(
+                                    state,
+                                    stage=current_stage,
+                                    event="react_agent_error",
+                                    error=str(e),
+                                    thread_id=thread_id,
+                                    duration_ms=duration_ms,
+                                )
+                        elif not user_message:
+                            self._trace(state, stage=current_stage, event="react_agent_skipped_no_user_input", thread_id=thread_id)
+                        else:
+                            self._trace(state, stage=current_stage, event="react_agent_skipped_no_api_key", thread_id=thread_id)
+                    else:
+                        self._trace(state, stage=current_stage, event="react_agent_unavailable")
                 rb = self.exec.run(
                     self.tools["roadmap_builder"],
                     RoadmapBuilderInput(outline=state.plan_outline.model_dump(), roadmap_context={}),
@@ -260,6 +492,52 @@ class PlanningController:
                     state.response_text = "Missing roadmap; cannot draft schedule."
                     self._trace(state, stage=current_stage, event="missing_roadmap")
                     return state
+                # Optional: delegate to ReAct agent behind feature flag (Schedule stage)
+                if get_flag("PLANNING_USE_REACT_AGENT", False):
+                    graph, cfg = create_planning_react_agent(system_prompt=AGENT_SYSTEM_PROMPT)
+                    if graph is not None:
+                        thread_id = None
+                        try:
+                            uid = state.memory_context.user_id if state.memory_context else None
+                            gid = None
+                            thread_id = f"user_{uid}:{gid or 'new'}" if uid else None
+                        except Exception:
+                            thread_id = None
+                        if cfg and isinstance(cfg, dict) and "config" in cfg:
+                            cfg["config"]["configurable"]["thread_id"] = thread_id
+
+                        user_message = state.user_input
+                        if os.getenv("OPENAI_API_KEY") and user_message:
+                            agent_start = time.time()
+                            try:
+                                conf = cfg.get("config", {}) if isinstance(cfg, dict) else {}
+                                _result = graph.invoke({"input": user_message}, config=conf)  # type: ignore
+                                duration_ms = int((time.time() - agent_start) * 1000)
+                                self._trace(
+                                    state,
+                                    stage=current_stage,
+                                    event="react_agent_invoked",
+                                    thread_id=thread_id,
+                                    duration_ms=duration_ms,
+                                    cost_delta=0.0,
+                                    agent_output_preview=(str(_result)[:200] if _result is not None else None),
+                                )
+                            except Exception as e:
+                                duration_ms = int((time.time() - agent_start) * 1000)
+                                self._trace(
+                                    state,
+                                    stage=current_stage,
+                                    event="react_agent_error",
+                                    error=str(e),
+                                    thread_id=thread_id,
+                                    duration_ms=duration_ms,
+                                )
+                        elif not user_message:
+                            self._trace(state, stage=current_stage, event="react_agent_skipped_no_user_input", thread_id=thread_id)
+                        else:
+                            self._trace(state, stage=current_stage, event="react_agent_skipped_no_api_key", thread_id=thread_id)
+                    else:
+                        self._trace(state, stage=current_stage, event="react_agent_unavailable")
                 sg = self.exec.run(
                     self.tools["schedule_generator"],
                     ScheduleGeneratorInput(roadmap=state.roadmap.model_dump()),

@@ -17,6 +17,53 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, Field
+import os
+
+# Import contracts to build valid structures deterministically
+from app.cognitive.contracts.types import (
+    PatternSpec,
+    PlanOutline,
+)
+from app.config.feature_flags import get_flag
+from app.config.llm_config import LLM_CONFIG
+
+# Safe import of ChatOpenAI
+try:
+    from langchain_openai import ChatOpenAI  # type: ignore
+except Exception:  # pragma: no cover
+    ChatOpenAI = None  # type: ignore
+
+from app.cognitive.agents.prompt_factory import (
+    pattern_selector_system_prompt,
+    node_generator_system_prompt,
+)
+import json
+
+
+def _get_chat_model():
+    """Construct a ChatOpenAI model from LLM_CONFIG or return None if unavailable."""
+    if ChatOpenAI is None:
+        return None
+    model = LLM_CONFIG.get("model", "gpt-4o")
+    temperature = float(LLM_CONFIG.get("temperature", 0.1))
+    timeout = int(LLM_CONFIG.get("timeout_sec", 60))
+    max_tokens = int(LLM_CONFIG.get("max_tokens", 2000))
+    try:
+        return ChatOpenAI(model=model, temperature=temperature, timeout=timeout, max_tokens=max_tokens)  # type: ignore
+    except Exception:
+        return None
+
+
+def _strip_code_fences(text: str) -> str:
+    t = text.strip()
+    if t.startswith("```") and t.endswith("```"):
+        t = t.strip("`")
+        # remove possible language hint like ```json
+        parts = t.split("\n", 1)
+        if len(parts) == 2 and parts[0].lower().startswith("json"):
+            return parts[1]
+        return parts[-1]
+    return t
 
 
 # ─────────────────────────────────────────────────────────────
@@ -34,6 +81,39 @@ class ToolResult(BaseModel):
 # Core tools (skeletons)
 # ─────────────────────────────────────────────────────────────
 
+class ClarifierInput(BaseModel):
+    prompt: Optional[str] = None
+    missing_fields: Optional[List[str]] = None
+    style: Optional[str] = None  # e.g., concise, coach
+
+
+class ClarifierTool:
+    name = "clarifier"
+    description = (
+        "Ask the user a single, specific question when information is missing. "
+        "Use this before calling other tools if inputs are ambiguous or incomplete."
+    )
+    prerequisites: List[str] = []
+    produces: List[str] = ["question"]
+
+    def run(self, params: ClarifierInput) -> ToolResult:
+        # Deterministic question composer; keeps language minimal
+        missing = params.missing_fields or []
+        if params.prompt:
+            question = params.prompt.strip()
+        elif missing:
+            if len(missing) == 1:
+                question = f"Could you provide your {missing[0]}?"
+            else:
+                joined = ", ".join(missing[:-1]) + f" and {missing[-1]}"
+                question = f"Could you share {joined}?"
+        else:
+            question = "What is the goal you want to plan for?"
+        if params.style == "concise":
+            # Slightly shorten when concise
+            question = question.replace("Could you", "Please").replace("could you", "please")
+        return ToolResult(ok=True, confidence=0.9, explanations=["clarifier_question"], data={"question": question})
+
 class PatternSelectorInput(BaseModel):
     goal_text: str
     hints: Optional[Dict[str, Any]] = None
@@ -46,15 +126,62 @@ class PatternSelectorTool:
     produces: List[str] = ["pattern"]
 
     def run(self, params: PatternSelectorInput) -> ToolResult:
-        # Skeleton implementation (no LLM): return not-OK placeholder
-        return ToolResult(
-            ok=False,
-            confidence=0.0,
-            explanations=[
-                "PatternSelectorTool is a stub; integrate LLM and PatternSpec construction in Phase 7b."
-            ],
-            data={},
-        )
+        # Gate behind feature flag and API key
+        if not get_flag("PLANNING_USE_LLM_TOOLS", False):
+            return ToolResult(ok=False, confidence=0.0, explanations=["llm_tools_disabled"], data={})
+        if not os.getenv("OPENAI_API_KEY"):
+            return ToolResult(ok=False, confidence=0.0, explanations=["missing_openai_api_key"], data={})
+        model = _get_chat_model()
+        if model is None:
+            return ToolResult(ok=False, confidence=0.0, explanations=["llm_unavailable"], data={})
+
+        sys_prompt = pattern_selector_system_prompt()
+        # Try structured output
+        structured = None
+        try:
+            structured = model.with_structured_output(PatternSpec)  # type: ignore[attr-defined]
+        except Exception:
+            structured = None
+        if structured is not None:
+            try:
+                result = structured.invoke([
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": json.dumps({"goal_text": params.goal_text, "hints": params.hints or {}}, ensure_ascii=False)},
+                ])
+                spec = result if isinstance(result, PatternSpec) else PatternSpec.model_validate(result)
+                conf = float(spec.confidence or 0.7)
+                return ToolResult(ok=True, confidence=max(0.0, min(conf, 1.0)), explanations=["pattern_selected_by_llm"], data={"pattern": spec.model_dump()})
+            except Exception:
+                # fall back to manual JSON mode below
+                pass
+
+        messages = [
+            ("system", sys_prompt + " Respond with a single JSON object only."),
+            ("user", json.dumps({"goal_text": params.goal_text, "hints": params.hints or {}}, ensure_ascii=False)),
+        ]
+        tries = 0
+        last_error = None
+        while tries < 2:
+            tries += 1
+            try:
+                resp = model.invoke([{"role": r, "content": c} for r, c in messages])
+                content = getattr(resp, "content", "") or ""
+                content = _strip_code_fences(content)
+                payload = json.loads(content)
+                spec = PatternSpec.model_validate(payload)
+                conf = float(payload.get("confidence", 0.6)) if isinstance(payload, dict) else 0.6
+                return ToolResult(
+                    ok=True,
+                    confidence=max(0.0, min(conf, 1.0)),
+                    explanations=["pattern_selected_by_llm"],
+                    data={"pattern": spec.model_dump()},
+                )
+            except Exception as e:
+                last_error = str(e)
+                # tighten instructions and retry once
+                messages.append(("system", "Respond with a single JSON object only. No prose, no markdown."))
+                continue
+        return ToolResult(ok=False, confidence=0.0, explanations=[f"pattern_selector_llm_error: {last_error}"], data={})
 
 
 class GrammarValidatorInput(BaseModel):
@@ -90,13 +217,77 @@ class NodeGeneratorTool:
     produces: List[str] = ["outline"]
 
     def run(self, params: NodeGeneratorInput) -> ToolResult:
-        # Skeleton: not-OK placeholder; will emit a minimal valid outline in Phase 7b
-        return ToolResult(
-            ok=False,
-            confidence=0.0,
-            explanations=["NodeGeneratorTool is a stub; implement structure in Phase 7b."],
-            data={},
-        )
+        # Gate behind feature flag and API key
+        if not get_flag("PLANNING_USE_LLM_TOOLS", False):
+            return ToolResult(ok=False, confidence=0.0, explanations=["llm_tools_disabled"], data={})
+        if not os.getenv("OPENAI_API_KEY"):
+            return ToolResult(ok=False, confidence=0.0, explanations=["missing_openai_api_key"], data={})
+        model = _get_chat_model()
+        if model is None:
+            return ToolResult(ok=False, confidence=0.0, explanations=["llm_unavailable"], data={})
+
+        # Ensure we pass a valid PatternSpec to the model context
+        try:
+            _ = PatternSpec.model_validate(params.pattern)
+        except Exception as e:
+            return ToolResult(ok=False, confidence=0.0, explanations=[f"invalid_pattern_input: {e}"], data={})
+
+        sys_prompt = node_generator_system_prompt()
+        # Try structured output
+        structured = None
+        try:
+            structured = model.with_structured_output(PlanOutline)  # type: ignore[attr-defined]
+        except Exception:
+            structured = None
+        if structured is not None:
+            try:
+                result = structured.invoke([
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": json.dumps({
+                        "goal_text": params.goal_text,
+                        "pattern": params.pattern,
+                        "plan_context": params.plan_context or {},
+                    }, ensure_ascii=False)},
+                ])
+                outline = result if isinstance(result, PlanOutline) else PlanOutline.model_validate(result)
+                return ToolResult(ok=True, confidence=0.75, explanations=["outline_generated_by_llm"], data={"outline": outline.model_dump()})
+            except Exception:
+                # fall back to manual JSON mode below
+                pass
+
+        messages = [
+            ("system", sys_prompt + " Respond with a single JSON object only."),
+            ("user", json.dumps({
+                "goal_text": params.goal_text,
+                "pattern": params.pattern,
+                "plan_context": params.plan_context or {},
+            }, ensure_ascii=False)),
+        ]
+        tries = 0
+        last_error = None
+        while tries < 2:
+            tries += 1
+            try:
+                resp = model.invoke([{"role": r, "content": c} for r, c in messages])
+                content = getattr(resp, "content", "") or ""
+                content = _strip_code_fences(content)
+                payload = json.loads(content)
+                # Validate outline
+                outline = PlanOutline.model_validate(payload)
+                # Additional invariants: root node must exist and be level 1 goal are covered by model
+                # Confidence: 0.7 baseline if schema valid; could accept model-provided self_rating if present
+                conf = 0.7
+                return ToolResult(
+                    ok=True,
+                    confidence=conf,
+                    explanations=["outline_generated_by_llm"],
+                    data={"outline": outline.model_dump()},
+                )
+            except Exception as e:
+                last_error = str(e)
+                messages.append(("system", "Respond with a single JSON object only. Ensure it matches the schema exactly."))
+                continue
+        return ToolResult(ok=False, confidence=0.0, explanations=[f"node_generator_llm_error: {last_error}"], data={})
 
 
 # ─────────────────────────────────────────────────────────────
@@ -284,6 +475,7 @@ def get_planning_tool_skeletons():
     Note: These are skeletons and will not perform real planning.
     """
     return [
+        ClarifierTool(),
         PatternSelectorTool(),
         GrammarValidatorTool(),
         NodeGeneratorTool(),

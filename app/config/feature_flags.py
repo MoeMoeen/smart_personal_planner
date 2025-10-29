@@ -10,9 +10,17 @@ from typing import Dict, Any
 # Phase 6 Feature Flag: Toggle between agentic and deterministic fallback planning
 PLANNING_FALLBACK_MODE: bool = os.getenv("PLANNING_FALLBACK_MODE", "false").lower() == "true"
 
+# Phase 7 Feature Flag: Use LangGraph ReAct agent inside controller stages (off by default)
+PLANNING_USE_REACT_AGENT: bool = os.getenv("PLANNING_USE_REACT_AGENT", "false").lower() == "true"
+
+# Phase 7 Tooling Flag: Use LLM-backed implementations for planning tools (off by default)
+PLANNING_USE_LLM_TOOLS: bool = os.getenv("PLANNING_USE_LLM_TOOLS", "false").lower() == "true"
+
 # Feature flag registry for easy management
 FEATURE_FLAGS: Dict[str, Any] = {
     "PLANNING_FALLBACK_MODE": PLANNING_FALLBACK_MODE,
+    "PLANNING_USE_REACT_AGENT": PLANNING_USE_REACT_AGENT,
+    "PLANNING_USE_LLM_TOOLS": PLANNING_USE_LLM_TOOLS,
 }
 
 def is_fallback_mode_enabled() -> bool:
