@@ -47,7 +47,7 @@ from app.cognitive.agents.planning_tools import (
     ApprovalHandlerInput,
 )
 from app.config.llm_config import LLM_CONFIG
-# System prompt can be provided by caller; no direct import needed here to avoid circulars
+from app.cognitive.agents.prompts import create_policy_aware_system_prompt
 
 
 def _make_structured_tool(
@@ -154,12 +154,22 @@ def get_checkpointer(db_path: str = "data/agent_conversations.db"):
     return SqliteSaver(db_path)  # type: ignore
 
 
-def create_planning_react_agent(db_path: str = "data/agent_conversations.db", system_prompt: str | None = None):
+def create_planning_react_agent(
+    db_path: str = "data/agent_conversations.db", 
+    system_prompt: str | None = None,
+    interaction_policy: object | None = None
+) -> tuple[Any | None, dict]:
     """Create a ReAct agent with our structured tools and sqlite checkpoints.
 
-    Returns a tuple (graph, config) where graph is a Runnable-like agent and
-    config includes the checkpointer and optional thread_id/namespace guidance.
-    If dependencies are unavailable, returns (None, {}).
+    Args:
+        db_path: Path to SQLite database for conversation checkpoints
+        system_prompt: Custom system prompt (overrides policy-generated prompt)
+        interaction_policy: InteractionPolicy instance to customize agent behavior
+        
+    Returns:
+        tuple (graph, config) where graph is a Runnable-like agent and
+        config includes the checkpointer and optional thread_id/namespace guidance.
+        If dependencies are unavailable, returns (None, {}).
     """
     if create_react_agent is None:
         return None, {}
@@ -170,9 +180,15 @@ def create_planning_react_agent(db_path: str = "data/agent_conversations.db", sy
     checkpointer = get_checkpointer(db_path)
     cra = cast(Any, create_react_agent)
     kwargs = {"checkpointer": checkpointer}
-    # Some versions of create_react_agent accept state_modifier for system prompt
+    
+    # Generate policy-aware system prompt if no custom prompt provided
     if system_prompt:
-        kwargs["state_modifier"] = system_prompt
+        final_prompt = system_prompt
+    else:
+        final_prompt = create_policy_aware_system_prompt(interaction_policy)
+    
+    # Some versions of create_react_agent accept state_modifier for system prompt
+    kwargs["state_modifier"] = final_prompt
     graph = cra(
         llm_factory(),
         tools=tools,
