@@ -18,20 +18,34 @@ import os
 # Safe imports (guarded)
 try:
     from langgraph.prebuilt import create_react_agent  # type: ignore
-    from langgraph.checkpoint.sqlite import SqliteSaver  # type: ignore
-    from langchain_core.tools import StructuredTool  # type: ignore
-    from langchain_openai import ChatOpenAI  # type: ignore
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     create_react_agent = None  # type: ignore
+    print("langgraph.prebuilt.create_react_agent not available")
+
+try:
+    from langgraph.checkpoint.sqlite import SqliteSaver  # type: ignore
+except ImportError:  # pragma: no cover
     SqliteSaver = None  # type: ignore
+    print("langgraph.checkpoint.sqlite.SqliteSaver not available")
+
+try:
+    from langchain_core.tools import StructuredTool  # type: ignore
+except ImportError:  # pragma: no cover
     StructuredTool = None  # type: ignore
+    print("langchain_core.tools.StructuredTool not available")
+
+try:
+    from langchain_openai import ChatOpenAI  # type: ignore
+except ImportError:  # pragma: no cover
     ChatOpenAI = None  # type: ignore
+    print("langchain_openai.ChatOpenAI not available")
 
 from pydantic import BaseModel
 
 from app.cognitive.agents.planning_tools import (
     PatternSelectorTool,
     GrammarValidatorTool,
+    SemanticCriticTool,
     NodeGeneratorTool,
     RoadmapBuilderTool,
     ScheduleGeneratorTool,
@@ -40,6 +54,7 @@ from app.cognitive.agents.planning_tools import (
     # Input schemas
     PatternSelectorInput,
     GrammarValidatorInput,
+    SemanticCriticInput,
     NodeGeneratorInput,
     RoadmapBuilderInput,
     ScheduleGeneratorInput,
@@ -88,6 +103,10 @@ def get_structured_tools() -> List[Any]:
         (
             GrammarValidatorTool(),
             GrammarValidatorInput,
+        ),
+        (
+            SemanticCriticTool(),
+            SemanticCriticInput,
         ),
         (
             NodeGeneratorTool(),

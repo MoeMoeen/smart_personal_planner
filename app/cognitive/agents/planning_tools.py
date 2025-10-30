@@ -18,6 +18,7 @@ from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, Field
 import os
+import time
 
 # Import contracts to build valid structures deterministically
 from app.cognitive.contracts.types import (
@@ -39,6 +40,7 @@ from app.cognitive.agents.prompt_factory import (
     grammar_validator_system_prompt,
 )
 import json
+from app.utils.logging import PlanningLogger, log_llm_call, log_operation
 
 
 def _get_chat_model():
@@ -126,15 +128,28 @@ class PatternSelectorTool:
     prerequisites: List[str] = []
     produces: List[str] = ["pattern"]
 
+    def __init__(self):
+        self.logger = PlanningLogger("pattern_selector_tool")
+
+    @log_llm_call
     def run(self, params: PatternSelectorInput) -> ToolResult:
-        # Gate behind feature flag and API key
-        if not get_flag("PLANNING_USE_LLM_TOOLS", False):
-            return ToolResult(ok=False, confidence=0.0, explanations=["llm_tools_disabled"], data={})
-        if not os.getenv("OPENAI_API_KEY"):
-            return ToolResult(ok=False, confidence=0.0, explanations=["missing_openai_api_key"], data={})
-        model = _get_chat_model()
-        if model is None:
-            return ToolResult(ok=False, confidence=0.0, explanations=["llm_unavailable"], data={})
+        with log_operation(self.logger, "pattern_selection",
+                          goal_text=params.goal_text[:100],
+                          has_hints=bool(params.hints)) as operation_id:
+            
+            # Gate behind feature flag and API key
+            if not get_flag("PLANNING_USE_LLM_TOOLS", False):
+                self.logger.info("tool_disabled", operation_id=operation_id, reason="feature_flag_disabled")
+                return ToolResult(ok=False, confidence=0.0, explanations=["llm_tools_disabled"], data={})
+            
+            if not os.getenv("OPENAI_API_KEY"):
+                self.logger.warning("api_key_missing", operation_id=operation_id)
+                return ToolResult(ok=False, confidence=0.0, explanations=["missing_openai_api_key"], data={})
+            
+            model = _get_chat_model()
+            if model is None:
+                self.logger.error("model_unavailable", operation_id=operation_id)
+                return ToolResult(ok=False, confidence=0.0, explanations=["llm_unavailable"], data={})
 
         sys_prompt = pattern_selector_system_prompt()
         # Try structured output
@@ -313,6 +328,7 @@ class NodeGeneratorInput(BaseModel):
     goal_text: str
     pattern: Dict[str, Any]  # Expect PatternSpec.model_dump()
     plan_context: Optional[Dict[str, Any]] = None
+    hints: Optional[List[str]] = None  # Targeted repair hints from SemanticCritic
 
 
 class NodeGeneratorTool:
@@ -352,6 +368,7 @@ class NodeGeneratorTool:
                         "goal_text": params.goal_text,
                         "pattern": params.pattern,
                         "plan_context": params.plan_context or {},
+                        "hints": params.hints or [],
                     }, ensure_ascii=False)},
                 ])
                 outline = result if isinstance(result, PlanOutline) else PlanOutline.model_validate(result)
@@ -366,6 +383,7 @@ class NodeGeneratorTool:
                 "goal_text": params.goal_text,
                 "pattern": params.pattern,
                 "plan_context": params.plan_context or {},
+                "hints": params.hints or [],
             }, ensure_ascii=False)),
         ]
         tries = 0
@@ -458,6 +476,7 @@ class OptionCrafterTool:
 class RoadmapBuilderInput(BaseModel):
     outline: Dict[str, Any]  # Expect PlanOutline.model_dump()
     roadmap_context: Optional[Dict[str, Any]] = None
+    hints: Optional[List[str]] = None  # Targeted repair hints from SemanticCritic
 
 
 class RoadmapBuilderTool:
@@ -507,6 +526,7 @@ class ScheduleGeneratorInput(BaseModel):
     roadmap: Dict[str, Any]  # Expect Roadmap.model_dump()
     start_time: Optional[datetime] = None
     block_minutes: int = 60
+    hints: Optional[List[str]] = None  # Targeted repair hints from SemanticCritic
 
 
 class ScheduleGeneratorTool:
@@ -582,6 +602,7 @@ def get_planning_tool_skeletons():
     return [
         PatternSelectorTool(),
         GrammarValidatorTool(),
+        SemanticCriticTool(),
         NodeGeneratorTool(),
         RoadmapBuilderTool(),
         ScheduleGeneratorTool(),
@@ -593,6 +614,136 @@ def get_planning_tool_skeletons():
 # ─────────────────────────────────────────────────────────────
 # Step 6 Tool: ApprovalHandler
 # ─────────────────────────────────────────────────────────────
+
+class SemanticCriticInput(BaseModel):
+    stage: str  # "outline" | "roadmap" | "schedule"
+    goal_text: str
+    selected_pattern: Optional[Dict[str, Any]] = None  # PatternSpec.model_dump()
+    artifact: Dict[str, Any]  # outline/roadmap/schedule JSON
+    plan_context: Optional[Dict[str, Any]] = None
+    ontology: Optional[Dict[str, Any]] = None  # hierarchy_levels, grammar_rules, pattern_metadata
+
+
+class SemanticCriticTool:
+    name = "semantic_critic"
+    description = "Critique artifact for conceptual/semantic consistency and provide repair hints"
+    prerequisites: List[str] = ["artifact"]
+    produces: List[str] = ["semantic_report"]
+
+    def __init__(self):
+        self.logger = PlanningLogger("semantic_critic_tool")
+
+    @log_llm_call
+    def run(self, params: SemanticCriticInput) -> ToolResult:
+        with log_operation(self.logger, "semantic_critique",
+                          stage=params.stage,
+                          goal_preview=params.goal_text[:50],
+                          has_pattern=bool(params.selected_pattern),
+                          has_ontology=bool(params.ontology)) as operation_id:
+            
+            # Gate checks with logging
+            if not get_flag("PLANNING_USE_LLM_TOOLS", False):
+                self.logger.info("tool_disabled", operation_id=operation_id, reason="feature_flag_disabled")
+                return ToolResult(ok=False, confidence=0.0, explanations=["llm_tools_disabled"], data={})
+            
+            if not os.getenv("OPENAI_API_KEY"):
+                self.logger.warning("api_key_missing", operation_id=operation_id)
+                return ToolResult(ok=False, confidence=0.0, explanations=["missing_openai_api_key"], data={})
+            
+            model = _get_chat_model()
+            if model is None:
+                self.logger.error("model_unavailable", operation_id=operation_id)
+                return ToolResult(ok=False, confidence=0.0, explanations=["llm_unavailable"], data={})
+
+            # Get stage-specific rubric from prompt factory
+            from app.cognitive.agents.prompt_factory import semantic_critic_system_prompt
+            sys_prompt = semantic_critic_system_prompt(params.stage, params.ontology or {})
+
+            # Prepare payload for critique
+            payload = {
+                "goal_text": params.goal_text,
+                "selected_pattern": params.selected_pattern or {},
+                "artifact": params.artifact,
+                "plan_context": params.plan_context or {},
+            }
+
+            self.logger.info("critique_starting",
+                operation_id=operation_id,
+                stage=params.stage,
+                artifact_keys=list(params.artifact.keys()) if isinstance(params.artifact, dict) else "non_dict",
+                pattern_type=params.selected_pattern.get("pattern_type") if params.selected_pattern else None,
+                ontology_keys=list(params.ontology.keys()) if params.ontology else [],
+                payload_size=len(json.dumps(payload, default=str))
+            )
+
+            # Expect strict JSON verdict {ok, confidence, issues[], repair_hints[]}
+            msgs = [
+                ("system", sys_prompt + " Respond with a single JSON object only."),
+                ("user", json.dumps(payload, ensure_ascii=False, default=str)),
+            ]
+            
+            tries = 0
+            last_error = None
+            while tries < 2:
+                tries += 1
+                try:
+                    start_time = time.time()
+                    resp = model.invoke([{"role": r, "content": c} for r, c in msgs])
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    
+                    content = getattr(resp, "content", "") or ""
+                    content = _strip_code_fences(content)
+                    
+                    self.logger.info("critique_response_received",
+                        operation_id=operation_id,
+                        attempt=tries,
+                        duration_ms=duration_ms,
+                        content_length=len(content)
+                    )
+                    
+                    verdict = json.loads(content)
+                    
+                    ok = bool(verdict.get("ok", False))
+                    conf = float(verdict.get("confidence", 0.5))
+                    issues = verdict.get("issues", [])
+                    hints = verdict.get("repair_hints", [])
+                    
+                    self.logger.info("critique_complete",
+                        operation_id=operation_id,
+                        ok=ok,
+                        confidence=conf,
+                        issues_count=len(issues),
+                        hints_count=len(hints),
+                        issues=issues[:3],  # Log first 3 issues
+                        repair_hints=hints[:3]  # Log first 3 hints
+                    )
+                    
+                    return ToolResult(ok=ok, confidence=conf, explanations=["semantic_critic"], data={
+                        "semantic_report": {
+                            "ok": ok,
+                            "confidence": conf,
+                            "issues": issues,
+                            "repair_hints": hints,
+                        }
+                    })
+                except Exception as e:
+                    last_error = str(e)
+                    self.logger.warning("critique_attempt_failed",
+                        operation_id=operation_id,
+                        attempt=tries,
+                        error=str(e),
+                        error_type=type(e).__name__
+                    )
+                    msgs.append(("system", "Respond with JSON only: {'ok': bool, 'confidence': float, 'issues': [str], 'repair_hints': [str]}"))
+                    continue
+            
+            self.logger.error("critique_failed",
+                operation_id=operation_id,
+                final_error=last_error,
+                attempts_made=tries
+            )
+            return ToolResult(ok=False, confidence=0.0, explanations=[f"semantic_critic_error:{last_error}"], data={})
+
 
 class ApprovalHandlerInput(BaseModel):
     approval_policy: Optional[str] = None  # single_final | milestone_approvals | strict_every_step
