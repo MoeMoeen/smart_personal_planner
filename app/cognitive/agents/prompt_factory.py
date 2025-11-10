@@ -41,7 +41,9 @@ def node_generator_system_prompt() -> str:
         "You are an Outline Generator. Produce a minimal but valid PlanOutline. "
         f"Strategy modes: [{modes}]. Node types: [{node_types}]. Statuses: [{statuses}]. "
         "Include exactly one level=1 root goal with parent_id=null; root_id must equal that node's id. "
-        "1–3 child nodes under the root are sufficient. Use structured output (no prose)."
+        "1–3 child nodes under the root are sufficient. Use structured output (no prose). "
+        "Pattern consistency hints: learning_arc must include practice & reflection nodes; milestone_project should expose deliverables & dependencies; recurring_cycle should show cadence elements; progressive_accumulation_arc should show incremental layering; hybrid_project_cycle mixes project phases + habit tasks; strategic_transformation includes capability-building phases. "
+        "Return strictly schema-valid JSON only."
     )
 
 

@@ -22,11 +22,10 @@ from app.utils.logging import PlanningLogger, log_operation, TokenUsageTracker
 
 from app.cognitive.state.graph_state import GraphState
 from app.cognitive.contracts.types import InteractionPolicy
-from app.config.agent_config import SOFT_BUDGET_PER_TURN_USD
+from app.config.agent_config import SOFT_BUDGET_PER_TURN_USD, PLANNING_DEBUG
 from app.cognitive.agents.react_agent import create_planning_react_agent
+from app.utils.run_events import start_run as _events_start_run, end_run as _events_end_run
 
-
-# TODO: Remove unused controller states once deterministic FSM path is fully removed
 
 @dataclass
 class TurnBudget:
@@ -50,7 +49,6 @@ class PlanningController:
     def __init__(self):
         self.logger = PlanningLogger("planning_controller")
         self.token_tracker = TokenUsageTracker()
-        # TODO: Remove tool registry once deterministic path is fully removed
 
     def _policy(self, state: GraphState) -> InteractionPolicy:
         # Session override wins, else MemoryContext default, else safe defaults
@@ -100,6 +98,27 @@ class PlanningController:
                 budget_spent=turn_budget.spent
             )
 
+            user_message = state.user_input
+            if not user_message:
+                self.logger.warning("missing_user_input",
+                    operation_id=operation_id,
+                    thread_id=None
+                )
+                state.planning_status = "needs_clarification"
+                state.response_text = "Please share your goal or what you want to plan for."
+                self._trace(state, stage="AGENT_ENTRY", event="missing_user_input", thread_id=None)
+                return state
+            
+            if not os.getenv("OPENAI_API_KEY"):
+                self.logger.error("missing_api_key",
+                    operation_id=operation_id,
+                    thread_id=None
+                )
+                state.planning_status = "needs_clarification"
+                state.response_text = "LLM not configured. Set OPENAI_API_KEY to enable agent."
+                self._trace(state, stage="AGENT_ENTRY", event="missing_api_key", thread_id=None)
+                return state
+
             # High-Autonomy Path: Agent handles everything with user's interaction policy
             self.logger.info("creating_agent", operation_id=operation_id)
             graph, cfg = create_planning_react_agent(interaction_policy=policy)
@@ -141,27 +160,6 @@ class PlanningController:
                 has_memory_context=state.memory_context is not None
             )
 
-            user_message = state.user_input
-            if not user_message:
-                self.logger.warning("missing_user_input",
-                    operation_id=operation_id,
-                    thread_id=thread_id
-                )
-                state.planning_status = "needs_clarification"
-                state.response_text = "Please share your goal or what you want to plan for."
-                self._trace(state, stage="AGENT_ENTRY", event="missing_user_input", thread_id=thread_id)
-                return state
-            
-            if not os.getenv("OPENAI_API_KEY"):
-                self.logger.error("missing_api_key",
-                    operation_id=operation_id,
-                    thread_id=thread_id
-                )
-                state.planning_status = "needs_clarification"
-                state.response_text = "LLM not configured. Set OPENAI_API_KEY to enable agent."
-                self._trace(state, stage="AGENT_ENTRY", event="missing_api_key", thread_id=thread_id)
-                return state
-
             # Budget pre-check (soft)
             if not turn_budget.can_spend(0.0):
                 self.logger.warning("budget_limit_reached",
@@ -175,48 +173,52 @@ class PlanningController:
                 self._trace(state, stage="AGENT_ENTRY", event="soft_budget_pause")
                 return state
 
-            # Invoke agent once; agent owns internal tool sequencing
-            self.logger.info("agent_invocation_start",
+            # Invoke agent once; agent owns internal tool sequencing. Use messages-based state.
+            self.logger.info(
+                "agent_invocation_start",
                 operation_id=operation_id,
                 thread_id=thread_id,
                 user_message_length=len(user_message),
-                user_message_preview=user_message[:200]
+                user_message_preview=user_message[:200],
             )
-            
+
             agent_start = time.time()
             try:
                 conf = cfg.get("config", {}) if isinstance(cfg, dict) else {}
-                result = graph.invoke({"input": user_message}, config=conf)  # type: ignore
+                messages_state = {"messages": [{"role": "user", "content": user_message}]}
+                _events_start_run()
+                result = graph.invoke(messages_state, config=conf)  # type: ignore
                 duration_ms = int((time.time() - agent_start) * 1000)
-                preview = (str(result)[:500] if result is not None else None)
-                
-                # Extract agent output for logging
+
+                # Extract agent output from messages
                 agent_output = ""
-                if isinstance(result, dict):
-                    if "output" in result:
-                        agent_output = str(result["output"])
-                    elif "messages" in result and result["messages"]:
-                        last_msg = result["messages"][-1]
-                        if hasattr(last_msg, 'content'):
-                            agent_output = str(last_msg.content)
-                        elif isinstance(last_msg, dict) and 'content' in last_msg:
-                            agent_output = str(last_msg['content'])
-                
-                self.logger.info("agent_invocation_success",
+                if isinstance(result, dict) and "messages" in result and result["messages"]:
+                    last_msg = result["messages"][-1]
+                    if hasattr(last_msg, "content"):
+                        agent_output = str(last_msg.content)
+                    elif isinstance(last_msg, dict) and "content" in last_msg:
+                        agent_output = str(last_msg["content"])
+                elif isinstance(result, dict) and "output" in result:
+                    agent_output = str(result["output"])
+
+                preview = agent_output[:500] if agent_output else None
+
+                self.logger.info(
+                    "agent_invocation_success",
                     operation_id=operation_id,
                     thread_id=thread_id,
                     duration_ms=duration_ms,
                     result_type=type(result).__name__,
                     output_length=len(agent_output),
-                    output_preview=agent_output[:200] if agent_output else "no_output"
+                    output_preview=agent_output[:200] if agent_output else "no_output",
                 )
-                
-                # Record token usage estimate
+
+                # Token/cost estimate (very rough)
                 estimated_tokens = len(user_message) + len(agent_output)
-                estimated_cost = estimated_tokens * 0.00002  # Rough GPT-4 estimate
+                estimated_cost = estimated_tokens * 0.00002
                 self.token_tracker.record_call("react_agent", estimated_tokens, estimated_cost)
                 turn_budget.add_cost(estimated_cost)
-                
+
                 state.response_text = preview or "Agent finished."
                 state.planning_status = state.planning_status or "needs_clarification"
                 self._trace(
@@ -227,30 +229,47 @@ class PlanningController:
                     duration_ms=duration_ms,
                     agent_output_preview=preview,
                 )
-                
-                # Log session metrics
+
                 usage_summary = self.token_tracker.get_summary()
-                self.logger.info("session_metrics",
+                self.logger.info(
+                    "session_metrics",
                     operation_id=operation_id,
                     **usage_summary,
-                    final_status=state.planning_status
+                    final_status=state.planning_status,
                 )
-                
+
+                # Collect and optionally echo compact run events
+                try:
+                    run_events = _events_end_run()
+                except Exception:
+                    run_events = []
+                state.run_metadata["run_events"] = run_events
+                if PLANNING_DEBUG and run_events:
+                    print("Compact run events:")
+                    for ev in run_events:
+                        label = ev.get("label") or ev.get("name") or ev.get("stage") or ev.get("type")
+                        outcome = ev.get("qc_action") or ev.get("ok") or ev.get("outcome")
+                        print(f" - {label}: {outcome}")
                 return state
-                
+
             except Exception as e:
                 duration_ms = int((time.time() - agent_start) * 1000)
-                
-                self.logger.error("agent_invocation_failed",
+                self.logger.error(
+                    "agent_invocation_failed",
                     operation_id=operation_id,
                     thread_id=thread_id,
                     duration_ms=duration_ms,
                     error=str(e),
-                    error_type=type(e).__name__
+                    error_type=type(e).__name__,
                 )
-                
                 state.planning_status = "needs_clarification"
                 state.response_text = f"Agent error: {e}"
+                # End & attach any collected events on error
+                try:
+                    run_events = _events_end_run()
+                except Exception:
+                    run_events = []
+                state.run_metadata["run_events"] = run_events
                 self._trace(
                     state,
                     stage="AGENT_EXIT",
@@ -261,12 +280,3 @@ class PlanningController:
                 )
                 return state
 
-        # TODO: The deterministic FSM path (COLLECT_CONTEXT -> DRAFT_OUTLINE -> VALIDATE_OUTLINE -> 
-        # DRAFT_ROADMAP -> VALIDATE_ROADMAP -> DRAFT_SCHEDULE -> VALIDATE_SCHEDULE -> SEEK_APPROVAL)
-        # has been removed to focus on the high-autonomy agent path only. This included:
-        # - Tool registry and ToolExecutor
-        # - Multi-stage FSM loop with turn limits and budget checks
-        # - Pattern selection, node generation, grammar validation
-        # - Roadmap building, schedule generation, portfolio probing
-        # - Approval handling with various policies
-        # If fallback behavior is needed, re-implement as minimal stub or delegate to agent.

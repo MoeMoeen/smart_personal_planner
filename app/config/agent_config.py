@@ -7,6 +7,7 @@ docstrings and conservative defaults.
 """
 
 from __future__ import annotations
+import os
 
 # ─────────────────────────────────────────────────────────────
 # Controller limits (hard/soft caps)
@@ -56,3 +57,19 @@ REQUIRE_RFC_FOR_NEW_SUBTYPE: bool = True
 # When True, the controller performs a topological check using tool
 # prerequisites/produces metadata before executing a tool.
 ENFORCE_TOOL_DEPENDENCIES: bool = True
+
+
+# 
+# ─────────────────────────────────────────────────────────────
+# Debug / tracing controls
+# ─────────────────────────────────────────────────────────────
+#
+# PLANNING_DEBUG enables compact run-event echo to stdout at the end of a run
+# and ensures collected run events are available in state.run_metadata.
+# It is populated from the environment (e.g., .env) for easy toggling.
+def _str2bool(val: str | None, default: bool = False) -> bool:
+	if val is None:
+		return default
+	return val.strip().lower() in {"1", "true", "yes", "on"}
+
+PLANNING_DEBUG: bool = _str2bool(os.getenv("PLANNING_DEBUG"), default=False)

@@ -46,6 +46,8 @@ from app.cognitive.agents.planning_tools import (
     PatternSelectorTool,
     GrammarValidatorTool,
     SemanticCriticTool,
+    OntologySnapshotTool,
+    QCDecisionTool,
     NodeGeneratorTool,
     RoadmapBuilderTool,
     ScheduleGeneratorTool,
@@ -55,6 +57,7 @@ from app.cognitive.agents.planning_tools import (
     PatternSelectorInput,
     GrammarValidatorInput,
     SemanticCriticInput,
+    QCDecisionInput,
     NodeGeneratorInput,
     RoadmapBuilderInput,
     ScheduleGeneratorInput,
@@ -95,22 +98,33 @@ def get_structured_tools() -> List[Any]:
 
     Note: Underlying tool logic remains minimal/stubbed for some tools.
     """
+    class EmptyArgs(BaseModel):
+        pass
+
     mapping = [
         (
             PatternSelectorTool(),
             PatternSelectorInput,
         ),
         (
+            NodeGeneratorTool(),
+            NodeGeneratorInput,
+        ),
+        (
             GrammarValidatorTool(),
             GrammarValidatorInput,
+        ),
+        (
+            OntologySnapshotTool(),
+            EmptyArgs,
         ),
         (
             SemanticCriticTool(),
             SemanticCriticInput,
         ),
         (
-            NodeGeneratorTool(),
-            NodeGeneratorInput,
+            QCDecisionTool(),
+            QCDecisionInput,
         ),
         (
             RoadmapBuilderTool(),

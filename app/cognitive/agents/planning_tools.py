@@ -133,6 +133,8 @@ class PatternSelectorTool:
 
     @log_llm_call
     def run(self, params: PatternSelectorInput) -> ToolResult:
+        from app.utils.run_events import record_event
+        record_event("tool_start", name=self.name, label=self.name)
         with log_operation(self.logger, "pattern_selection",
                           goal_text=params.goal_text[:100],
                           has_hints=bool(params.hints)) as operation_id:
@@ -166,7 +168,9 @@ class PatternSelectorTool:
                 ])
                 spec = result if isinstance(result, PatternSpec) else PatternSpec.model_validate(result)
                 conf = float(spec.confidence or 0.7)
-                return ToolResult(ok=True, confidence=max(0.0, min(conf, 1.0)), explanations=["pattern_selected_by_llm"], data={"pattern": spec.model_dump()})
+                tool_result = ToolResult(ok=True, confidence=max(0.0, min(conf, 1.0)), explanations=["pattern_selected_by_llm"], data={"pattern": spec.model_dump()})
+                record_event("tool_complete", name=self.name, ok=True)
+                return tool_result
             except Exception:
                 # fall back to manual JSON mode below
                 pass
@@ -186,17 +190,20 @@ class PatternSelectorTool:
                 payload = json.loads(content)
                 spec = PatternSpec.model_validate(payload)
                 conf = float(payload.get("confidence", 0.6)) if isinstance(payload, dict) else 0.6
-                return ToolResult(
+                tool_result = ToolResult(
                     ok=True,
                     confidence=max(0.0, min(conf, 1.0)),
                     explanations=["pattern_selected_by_llm"],
                     data={"pattern": spec.model_dump()},
                 )
+                record_event("tool_complete", name=self.name, ok=True)
+                return tool_result
             except Exception as e:
                 last_error = str(e)
                 # tighten instructions and retry once
                 messages.append(("system", "Respond with a single JSON object only. No prose, no markdown."))
                 continue
+        record_event("tool_complete", name=self.name, ok=False, error=last_error)
         return ToolResult(ok=False, confidence=0.0, explanations=[f"pattern_selector_llm_error: {last_error}"], data={})
 
 
@@ -302,10 +309,13 @@ class GrammarValidatorTool:
             return None, [f"llm_repair_failed:{e}"]
 
     def run(self, params: GrammarValidatorInput) -> ToolResult:
+        from app.utils.run_events import record_event
+        record_event("tool_start", name=self.name, label=self.name)
         outline_dict = params.outline or {}
         violations = self._deterministic_checks(outline_dict)
         if not violations:
             report = GrammarValidationReport(valid=True, violations=[])
+            record_event("tool_complete", name=self.name, ok=True, valid=True)
             return ToolResult(ok=True, confidence=0.85, explanations=["outline_valid"], data=report.model_dump())
 
         # Try to repair with LLM; if repaired outline passes checks, return valid with repaired_outline
@@ -315,12 +325,14 @@ class GrammarValidatorTool:
             post = self._deterministic_checks(repaired)
             if not post:
                 report = GrammarValidationReport(valid=True, violations=[], repaired_outline=repaired, repair_notes=notes)
+                record_event("tool_complete", name=self.name, ok=True, repaired=True)
                 return ToolResult(ok=True, confidence=0.7, explanations=explanations + ["repaired_ok"], data=report.model_dump())
             else:
                 explanations.append("repair_still_invalid")
                 violations.extend(post)
 
         report = GrammarValidationReport(valid=False, violations=violations, repair_notes=notes)
+        record_event("tool_complete", name=self.name, ok=False, violations=violations)
         return ToolResult(ok=False, confidence=0.0, explanations=explanations, data=report.model_dump())
 
 
@@ -437,6 +449,51 @@ class BrainstormerTool:
         else:
             explanations = ["Default brainstorm (stub)."]
         return ToolResult(ok=True, confidence=0.6, explanations=explanations, data={"ideas": ideas})
+
+
+class OntologySnapshotTool:
+    name = "ontology_snapshot"
+    description = "Return planning ontology: hierarchy levels, grammar rules, pattern metadata."
+    prerequisites: List[str] = []
+    produces: List[str] = ["ontology"]
+
+    def run(self, _params: Optional[BaseModel] = None) -> ToolResult:
+        """Deterministic canonical ontology snapshot so SemanticCritic always has full context."""
+        ontology = {
+            "hierarchy_levels": ["goal", "phase", "sub_goal", "task", "sub_task", "micro_goal"],
+            "grammar_rules": [
+                "L1 is node_type=goal with parent_id=null and level=1",
+                "Goal must have ≥1 descendant task",
+                "Non-root nodes must have valid parent and level>=2",
+            ],
+            "pattern_metadata": {
+                "learning_arc": {
+                    "must_include": ["practice", "reflection"],
+                    "hints": ["skill progression", "weekly checkpoints"],
+                },
+                "milestone_project": {
+                    "must_include": ["deliverables", "dependencies", "quality gates"],
+                    "hints": ["milestones", "acceptance criteria"],
+                },
+                "recurring_cycle": {
+                    "must_include": ["cadence", "feedback"],
+                    "hints": ["sustainable iteration", "review loop"],
+                },
+                "progressive_accumulation_arc": {
+                    "must_include": ["incremental builds", "complexity progression"],
+                    "hints": ["layering", "checkpoint consolidation"],
+                },
+                "hybrid_project_cycle": {
+                    "must_include": ["project phases", "habit reinforcement"],
+                    "hints": ["phase transitions", "ritual tasks"],
+                },
+                "strategic_transformation": {
+                    "must_include": ["long-term vision", "capability development"],
+                    "hints": ["maturity stages", "capability gaps"],
+                },
+            },
+        }
+        return ToolResult(ok=True, confidence=1.0, explanations=["ontology_snapshot"], data={"ontology": ontology})
 
 
 class OptionCrafterInput(BaseModel):
@@ -601,9 +658,10 @@ def get_planning_tool_skeletons():
     """
     return [
         PatternSelectorTool(),
-        GrammarValidatorTool(),
-        SemanticCriticTool(),
-        NodeGeneratorTool(),
+        NodeGeneratorTool(),  # producer
+        GrammarValidatorTool(),  # validator
+        OntologySnapshotTool(),  # deterministic context provider
+        SemanticCriticTool(),  # semantic evaluation
         RoadmapBuilderTool(),
         ScheduleGeneratorTool(),
         PortfolioProbeTool(),
@@ -635,6 +693,8 @@ class SemanticCriticTool:
 
     @log_llm_call
     def run(self, params: SemanticCriticInput) -> ToolResult:
+        from app.utils.run_events import record_event
+        record_event("tool_start", name=self.name, stage=params.stage, label=f"{self.name}:{params.stage}")
         with log_operation(self.logger, "semantic_critique",
                           stage=params.stage,
                           goal_preview=params.goal_text[:50],
@@ -654,6 +714,17 @@ class SemanticCriticTool:
             if model is None:
                 self.logger.error("model_unavailable", operation_id=operation_id)
                 return ToolResult(ok=False, confidence=0.0, explanations=["llm_unavailable"], data={})
+
+            # Ensure ontology is available; deterministically fetch if missing
+            if not params.ontology:
+                try:
+                    auto_onto = OntologySnapshotTool().run()
+                    if auto_onto.ok:
+                        params.ontology = auto_onto.data.get("ontology", {})
+                        self.logger.info("ontology_auto_fetched", operation_id=operation_id)
+                except Exception as _:
+                    # If fetching ontology fails, proceed without but log
+                    self.logger.warning("ontology_fetch_failed", operation_id=operation_id)
 
             # Get stage-specific rubric from prompt factory
             from app.cognitive.agents.prompt_factory import semantic_critic_system_prompt
@@ -718,7 +789,7 @@ class SemanticCriticTool:
                         repair_hints=hints[:3]  # Log first 3 hints
                     )
                     
-                    return ToolResult(ok=ok, confidence=conf, explanations=["semantic_critic"], data={
+                    tool_result = ToolResult(ok=ok, confidence=conf, explanations=["semantic_critic"], data={
                         "semantic_report": {
                             "ok": ok,
                             "confidence": conf,
@@ -726,6 +797,8 @@ class SemanticCriticTool:
                             "repair_hints": hints,
                         }
                     })
+                    record_event("tool_complete", name=self.name, stage=params.stage, ok=ok, issues=len(issues), hints=len(hints))
+                    return tool_result
                 except Exception as e:
                     last_error = str(e)
                     self.logger.warning("critique_attempt_failed",
@@ -742,7 +815,51 @@ class SemanticCriticTool:
                 final_error=last_error,
                 attempts_made=tries
             )
+            record_event("tool_complete", name=self.name, stage=params.stage, ok=False, error=last_error)
             return ToolResult(ok=False, confidence=0.0, explanations=[f"semantic_critic_error:{last_error}"], data={})
+
+
+class QCDecisionInput(BaseModel):
+    stage: str  # "outline" | "roadmap" | "schedule"
+    grammar_report: Dict[str, Any]  # GrammarValidationReport.model_dump()
+    semantic_report: Dict[str, Any]  # {ok, confidence, issues[], repair_hints[]}
+    max_retries: int = 3
+    attempts_made: int = 0
+
+
+class QCDecisionTool:
+    name = "qc_decision"
+    description = "Deterministic accept/repair decision based on grammar + semantic verdicts"
+    prerequisites: List[str] = ["grammar_report", "semantic_report"]
+    produces: List[str] = ["qc_action"]
+
+    def run(self, params: QCDecisionInput) -> ToolResult:
+        from app.utils.run_events import record_event
+        record_event("tool_start", name=self.name, stage=params.stage, label=f"qc_decision:{params.stage}")
+        g = params.grammar_report or {}
+        s = params.semantic_report or {}
+        grammar_ok = bool(g.get("valid", False))
+        semantic_ok = bool(s.get("ok", False))
+        action = "accept"
+        hints: List[str] = []
+
+        if not grammar_ok or not semantic_ok:
+            if params.attempts_made >= params.max_retries:
+                action = "escalate"
+            else:
+                action = "retry"
+                hints = (g.get("repair_notes", []) or []) + (s.get("repair_hints", []) or [])
+        record_event("qc_decision", stage=params.stage, qc_action=action, grammar_ok=grammar_ok, semantic_ok=semantic_ok, hints=len(hints))
+        record_event("tool_complete", name=self.name, stage=params.stage, ok=(action=="accept"))
+        return ToolResult(
+            ok=True,
+            confidence=1.0,
+            explanations=["qc_decision"],
+            data={
+                "qc_action": action,
+                "hints": hints[:6],  # cap number of hints
+            },
+        )
 
 
 class ApprovalHandlerInput(BaseModel):
