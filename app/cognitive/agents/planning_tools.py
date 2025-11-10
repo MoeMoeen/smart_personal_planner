@@ -13,7 +13,7 @@ Each tool exposes `prerequisites` and `produces` metadata for controller checks.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, Field
@@ -24,6 +24,14 @@ import time
 from app.cognitive.contracts.types import (
     PatternSpec,
     PlanOutline,
+    PlanNode,
+    PlanContext,
+    StrategyProfile,
+    NodeStatus,
+)
+from app.cognitive.contracts.schema_models import (
+    PatternSpecSchema,
+    PlanOutlineSchema,
 )
 from app.config.feature_flags import get_flag
 from app.config.llm_config import LLM_CONFIG
@@ -41,6 +49,7 @@ from app.cognitive.agents.prompt_factory import (
 )
 import json
 from app.utils.logging import PlanningLogger, log_llm_call, log_operation
+import uuid
 
 
 def _get_chat_model():
@@ -67,6 +76,59 @@ def _strip_code_fences(text: str) -> str:
             return parts[1]
         return parts[-1]
     return t
+
+
+# ─────────────────────────────────────────────────────────────
+# Converters: schema models -> internal rich models
+# ─────────────────────────────────────────────────────────────
+
+_UUID_NS = uuid.NAMESPACE_URL
+
+
+def _uuid_from_str(stable_id: str) -> uuid.UUID:
+    # Deterministic UUID for stable string ids
+    return uuid.uuid5(_UUID_NS, f"planning:{stable_id}")
+
+
+def _outline_from_schema(schema_obj: PlanOutlineSchema) -> PlanOutline:
+    # Map string ids to UUIDs deterministically
+    id_map: Dict[str, uuid.UUID] = {}
+    for n in schema_obj.nodes:
+        id_map[n.id] = _uuid_from_str(n.id)
+
+    nodes: List[PlanNode] = []
+    for n in schema_obj.nodes:
+        status_val = n.status if n.status in {"pending", "in_progress", "done", "blocked"} else "pending"
+        node = PlanNode(
+            id=id_map[n.id],
+            parent_id=(id_map[n.parent_id] if n.parent_id else None),
+            node_type=n.node_type.value,  # aligns with internal Literal
+            level=int(n.level),
+            title=n.title,
+            status=cast(NodeStatus, status_val),
+            progress=float(n.progress),
+            dependencies=[],
+            tags=n.tags or [],
+            metadata={},
+        )
+        nodes.append(node)
+
+    root_uuid = id_map.get(schema_obj.root_id, _uuid_from_str(schema_obj.root_id))
+
+    ctx = PlanContext(
+        strategy_profile=StrategyProfile(mode="push"),
+        pattern=None,
+        assumptions=None,
+        constraints=None,
+        user_prefs=None,
+    )
+
+    return PlanOutline(
+        root_id=root_uuid,
+        plan_context=ctx,
+        nodes=nodes,
+        pattern=None,
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -154,10 +216,11 @@ class PatternSelectorTool:
                 return ToolResult(ok=False, confidence=0.0, explanations=["llm_unavailable"], data={})
 
         sys_prompt = pattern_selector_system_prompt()
-        # Try structured output
+        # Try structured output with JSON schema (preferred when OPENAI_JSON_MODE)
         structured = None
         try:
-            structured = model.with_structured_output(PatternSpec)  # type: ignore[attr-defined]
+            method = "json_schema" if bool(LLM_CONFIG.get("json_mode", True)) else "function_calling"
+            structured = model.with_structured_output(PatternSpecSchema, method=method)  # type: ignore[attr-defined]
         except Exception:
             structured = None
         if structured is not None:
@@ -166,7 +229,9 @@ class PatternSelectorTool:
                     {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": json.dumps({"goal_text": params.goal_text, "hints": params.hints or {}}, ensure_ascii=False)},
                 ])
-                spec = result if isinstance(result, PatternSpec) else PatternSpec.model_validate(result)
+                # Convert schema result into internal PatternSpec
+                payload = getattr(result, "model_dump", lambda: result)()
+                spec = PatternSpec.model_validate(payload)
                 conf = float(spec.confidence or 0.7)
                 tool_result = ToolResult(ok=True, confidence=max(0.0, min(conf, 1.0)), explanations=["pattern_selected_by_llm"], data={"pattern": spec.model_dump()})
                 record_event("tool_complete", name=self.name, ok=True)
@@ -275,10 +340,11 @@ class GrammarValidatorTool:
             return None, ["llm_unavailable"]
 
         sys_prompt = grammar_validator_system_prompt()
-        # Prefer structured output to a PlanOutline
+        # Prefer structured output to a PlanOutline (JSON schema preferred)
         structured = None
         try:
-            structured = model.with_structured_output(PlanOutline)  # type: ignore[attr-defined]
+            method = "json_schema" if bool(LLM_CONFIG.get("json_mode", True)) else "function_calling"
+            structured = model.with_structured_output(PlanOutlineSchema, method=method)  # type: ignore[attr-defined]
         except Exception:
             structured = None
         user_payload = json.dumps({"outline": outline_dict}, ensure_ascii=False)
@@ -288,8 +354,16 @@ class GrammarValidatorTool:
                     {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": user_payload},
                 ])
-                outline = result if isinstance(result, PlanOutline) else PlanOutline.model_validate(result)
-                return outline.model_dump(), ["repaired_via_llm_structured_output"]
+                payload = getattr(result, "model_dump", lambda: result)()
+                # Convert schema payload to internal outline
+                try:
+                    schema_outline = PlanOutlineSchema.model_validate(payload)
+                    outline_obj = _outline_from_schema(schema_outline)
+                    return outline_obj.model_dump(), ["repaired_via_llm_structured_output"]
+                except Exception:
+                    # last attempt: try direct internal validation
+                    outline = PlanOutline.model_validate(payload)
+                    return outline.model_dump(), ["repaired_via_llm_structured_output"]
             except Exception:
                 pass
 
@@ -303,8 +377,15 @@ class GrammarValidatorTool:
             content = getattr(resp, "content", "") or ""
             content = _strip_code_fences(content)
             payload = json.loads(content)
-            outline = PlanOutline.model_validate(payload)
-            return outline.model_dump(), ["repaired_via_llm_json_mode"]
+            try:
+                # first try schema -> internal
+                schema_outline = PlanOutlineSchema.model_validate(payload)
+                outline = _outline_from_schema(schema_outline)
+                return outline.model_dump(), ["repaired_via_llm_json_mode"]
+            except Exception:
+                # fallback to internal directly
+                outline = PlanOutline.model_validate(payload)
+                return outline.model_dump(), ["repaired_via_llm_json_mode"]
         except Exception as e:
             return None, [f"llm_repair_failed:{e}"]
 
@@ -366,10 +447,11 @@ class NodeGeneratorTool:
             return ToolResult(ok=False, confidence=0.0, explanations=[f"invalid_pattern_input: {e}"], data={})
 
         sys_prompt = node_generator_system_prompt()
-        # Try structured output
+        # Try structured output (JSON schema preferred)
         structured = None
         try:
-            structured = model.with_structured_output(PlanOutline)  # type: ignore[attr-defined]
+            method = "json_schema" if bool(LLM_CONFIG.get("json_mode", True)) else "function_calling"
+            structured = model.with_structured_output(PlanOutlineSchema, method=method)  # type: ignore[attr-defined]
         except Exception:
             structured = None
         if structured is not None:
@@ -383,8 +465,14 @@ class NodeGeneratorTool:
                         "hints": params.hints or [],
                     }, ensure_ascii=False)},
                 ])
-                outline = result if isinstance(result, PlanOutline) else PlanOutline.model_validate(result)
-                return ToolResult(ok=True, confidence=0.75, explanations=["outline_generated_by_llm"], data={"outline": outline.model_dump()})
+                payload = getattr(result, "model_dump", lambda: result)()
+                try:
+                    schema_outline = PlanOutlineSchema.model_validate(payload)
+                    outline_obj = _outline_from_schema(schema_outline)
+                    return ToolResult(ok=True, confidence=0.75, explanations=["outline_generated_by_llm"], data={"outline": outline_obj.model_dump()})
+                except Exception:
+                    outline = PlanOutline.model_validate(payload)
+                    return ToolResult(ok=True, confidence=0.75, explanations=["outline_generated_by_llm"], data={"outline": outline.model_dump()})
             except Exception:
                 # fall back to manual JSON mode below
                 pass
@@ -407,16 +495,19 @@ class NodeGeneratorTool:
                 content = getattr(resp, "content", "") or ""
                 content = _strip_code_fences(content)
                 payload = json.loads(content)
-                # Validate outline
-                outline = PlanOutline.model_validate(payload)
-                # Additional invariants: root node must exist and be level 1 goal are covered by model
-                # Confidence: 0.7 baseline if schema valid; could accept model-provided self_rating if present
+                # Try schema then internal
+                try:
+                    schema_outline = PlanOutlineSchema.model_validate(payload)
+                    outline_obj = _outline_from_schema(schema_outline)
+                except Exception:
+                    outline_obj = PlanOutline.model_validate(payload)
+                # Confidence baseline if valid
                 conf = 0.7
                 return ToolResult(
                     ok=True,
                     confidence=conf,
                     explanations=["outline_generated_by_llm"],
-                    data={"outline": outline.model_dump()},
+                    data={"outline": outline_obj.model_dump()},
                 )
             except Exception as e:
                 last_error = str(e)

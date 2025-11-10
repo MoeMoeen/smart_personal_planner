@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+import argparse
 
 # Optional dotenv support
 try:
@@ -16,9 +17,15 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 def main():
+    parser = argparse.ArgumentParser(description="Smart Planner CLI — High-Autonomy Agent")
+    parser.add_argument("--debug", action="store_true", help="Enable compact run-event echo (PLANNING_DEBUG=1)")
+    args = parser.parse_args()
+
     load_dotenv(override=False)
     os.environ.setdefault("PLANNING_USE_REACT_AGENT", "true")
     os.environ.setdefault("PLANNING_USE_LLM_TOOLS", "true")
+    if args.debug:
+        os.environ["PLANNING_DEBUG"] = "1"
 
     from app.cognitive.agents.planning_controller import PlanningController
     from app.cognitive.state.graph_state import GraphState

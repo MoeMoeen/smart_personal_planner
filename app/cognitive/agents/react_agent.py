@@ -227,10 +227,18 @@ def create_planning_react_agent(
         tools=tools,
         **kwargs,
     )
+    # Allow recursion limit override via env to prevent runaway loops while debugging
+    recursion_limit_env = os.getenv("PLANNING_RECURSION_LIMIT")
+    try:
+        recursion_limit = int(recursion_limit_env) if recursion_limit_env else 25
+    except ValueError:
+        recursion_limit = 25
+
     config = {
         "checkpointer": checkpointer,
         # The caller should set a proper thread_id and checkpoint_ns per session
         "config": {
+            "recursion_limit": recursion_limit,
             "configurable": {
                 "thread_id": None,
                 "checkpoint_ns": "planning_agent",

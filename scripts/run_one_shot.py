@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+import argparse
 
 # Optional dotenv support (do not hard-crash if missing)
 try:
@@ -15,12 +16,14 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-def run(goal: str):
+def run(goal: str, debug: bool = False):
     # Load environment (.env) and ensure unbuffered output for logs
     load_dotenv(override=False)
     os.environ.setdefault("PYTHONUNBUFFERED", "1")
     os.environ.setdefault("PLANNING_USE_REACT_AGENT", "true")
     os.environ.setdefault("PLANNING_USE_LLM_TOOLS", "true")
+    if debug:
+        os.environ["PLANNING_DEBUG"] = "1"
 
     # Friendly check for API key when making real LLM calls
     if not os.getenv("OPENAI_API_KEY"):
@@ -50,5 +53,8 @@ def run(goal: str):
         print(t)
 
 if __name__ == "__main__":
-    goal = sys.argv[1] if len(sys.argv) > 1 else "Help me learn piano in 6 months and play 3 simple songs."
-    run(goal)
+    parser = argparse.ArgumentParser(description="Run a single high-autonomy planning turn")
+    parser.add_argument("goal", nargs="?", default="Help me learn piano in 6 months and play 3 simple songs.", help="User goal or request")
+    parser.add_argument("--debug", action="store_true", help="Enable compact run-event echo (PLANNING_DEBUG=1)")
+    args = parser.parse_args()
+    run(args.goal, debug=args.debug)
